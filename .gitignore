@@ -1,0 +1,28 @@
+# Environnement Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Dossiers virtuels
+.env
+.venv/
+venv/
+ENV/
+
+# Clés et configs locales
+serviceAccountKey.json
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
