@@ -9,3 +9,4 @@ Backend FastAPI pour scraper des opportunités et les stocker dans Firebase Fire
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 venv\Scripts\activate     # Windows
+

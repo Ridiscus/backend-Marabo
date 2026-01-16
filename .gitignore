@@ -1,28 +1,30 @@
-# Environnement Python
-__pycache__/
+# --- Environnement Python ---
+pycache/
 *.pyc
 *.pyo
 *.pyd
 *.db
 *.sqlite3
+*.log
 
-# Dossiers virtuels
+# --- Dossiers virtuels ---
 .env
 .venv/
 venv/
 ENV/
 
-# Clés et configs locales
+# --- Clés et Secrets (TRES IMPORTANT) ---
 serviceAccountKey.json
+service-account.json
+kaggle.json
 
-# Fichiers système
+# --- Fichiers système & IDE ---
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-
-# IDE
 .vscode/
 .idea/
 *.swp
+
+# --- Fichiers binaires inutiles sur le serveur ---
+chromedriver.exe
+geckodriver.exe
