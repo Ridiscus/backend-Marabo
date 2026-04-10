@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Admin - Scraping</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 40px; background-color: #f4f7f6; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 400px; }
+        button { 
+            background-color: #0a66c2; color: white; border: none; padding: 12px 20px; 
+            border-radius: 5px; font-size: 16px; cursor: pointer; width: 100%; transition: 0.3s;
+        }
+        button:hover { background-color: #004182; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        #status { margin-top: 15px; font-weight: bold; text-align: center; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>🛠️ Administration</h2>
+        <p>Mettre à jour la base de données avec les dernières offres de Côte d'Ivoire.</p>
+        
+        <button id="btn-scrape" onclick="lancerScraping()">
+            🚀 Lancer le Scraping LinkedIn
+        </button>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        async function lancerScraping() {
+            const btn = document.getElementById("btn-scrape");
+            const statusDiv = document.getElementById("status");
+
+            // 1. On désactive le bouton et on affiche "Chargement..."
+            btn.disabled = true;
+            btn.innerText = "⏳ Scraping en cours (patientez)...";
+            statusDiv.innerHTML = "";
+            statusDiv.className = "";
+
+            try {
+                // ⚠️ Remplace par l'URL exacte de ton API (ex: http://127.0.0.1:8000/scrape/linkedin)
+                const apiURL = "http://127.0.0.1:8000/scrape/linkedin"; 
+                
+                // 2. On appelle ton API backend
+                const response = await fetch(apiURL);
+                const data = await response.json();
+
+                // 3. On affiche le résultat
+                if (data.status === "success") {
+                    statusDiv.innerHTML = `✅ Succès ! ${data.added} offres ajoutées.`;
+                    statusDiv.className = "success";
+                } else {
+                    statusDiv.innerHTML = `⚠️ Fini, mais statut inattendu.`;
+                }
+            } catch (error) {
+                // En cas de problème de connexion
+                statusDiv.innerHTML = `❌ Erreur : Impossible de joindre l'API.`;
+                statusDiv.className = "error";
+                console.error(error);
+            } finally {
+                // 4. On remet le bouton à son état normal
+                btn.disabled = false;
+                btn.innerText = "🚀 Lancer le Scraping LinkedIn";
+            }
+        }
+    </script>
+
+</body>
+</html>

@@ -1,5 +1,5 @@
 import os, requests, uuid, random, hashlib
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, File, UploadFile, Form
 from bs4 import BeautifulSoup
 from firebase_admin import credentials, firestore, initialize_app
 from dotenv import load_dotenv
@@ -16,18 +16,33 @@ from fastapi.responses import JSONResponse
 import smtplib
 from email.mime.text import MIMEText
 from urllib.parse import urljoin
-
+from selenium.webdriver.common.by import By  # <--- Assure-toi que c'est décommenté ou ajouté
+from firebase_admin import firestore, messaging
+from facebook_scraper import get_posts
 from webdriver_manager.chrome import ChromeDriverManager
 
 
-#from selenium import webdriver
-#from selenium.webdriver.common.by import By
-#from selenium.webdriver.chrome.options import Options
-#from selenium.webdriver.chrome.service import Service
-#from selenium.webdriver.common.by import By
-#from selenium.webdriver.common.keys import Keys
-#from selenium.webdriver.support.ui import WebDriverWait
-#from selenium.webdriver.support import expected_conditions as EC
+import imaplib
+import email
+from email.header import decode_header
+from email.utils import parseaddr
+import traceback # 🟢 NOUVEAU : Pour pister l'erreur exacte
+
+
+from apify_client import ApifyClient
+from datetime import datetime
+from facebook_scraper import get_posts
+from apify_client import ApifyClient
+import google.generativeai as genai
+from firebase_admin import storage # <--- Ajoute storage
+from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, BackgroundTasks # N'oublie pas d'importer BackgroundTasks
+
+
+from typing import Optional # 💡 N'oublie pas cet import tout en haut de ton fichier !
+from fastapi import UploadFile, File, Form
+from fastapi.responses import JSONResponse
+# (Garde tes autres imports : firebase_admin, etc.)
 
 
 # --- IMPORTS SELENIUM ---
@@ -35,13 +50,18 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-# (Tu peux retirer 'undetected_chromedriver' si tu ne l'utilises pas spécifiquement, 
-# car il est très instable sur les serveurs Docker type Railway)
 
 
 import urllib3
 from kaggle.api.kaggle_api_extended import KaggleApi
 
+
+
+
+
+
+# Désactiver les warnings SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 
@@ -55,7 +75,13 @@ load_dotenv()
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+#GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+
+#GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+
+
+# Modèle mis à jour vers 2.0-flash (celui qui est dispo sur ta clé)
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
 EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT"))
@@ -77,11 +103,16 @@ cred = credentials.Certificate({
     "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
     "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{os.getenv('FIREBASE_CLIENT_EMAIL')}"
 })
-initialize_app(cred)
+
+
+# initialize_app(cred)
+
+initialize_app(cred, {
+    'storageBucket': 'marabo-80906.firebasestorage.app'
+})
+
+
 db = firestore.client()
-
-
-
 # Charger le fichier JSON téléchargé
 SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 SERVICE_ACCOUNT_FILE = "service-account.json"
@@ -102,7 +133,8 @@ print("Access Token:", access_token)
 
 
 app = FastAPI()
-
+# On dit à FastAPI : "Tout ce qui est dans le dossier 'static' est accessible via l'URL /static"
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # Fonction pour générer une image aléatoire
@@ -126,15 +158,121 @@ local_images = {
         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSO26enIR5fvSeo1p08r9KrS3r_AeW4X0NGUw&s",
         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQsyBqrF3io_uq63rLm3JiSlBudCh4kcGUJUg&s",
         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ_ExN2f0t-gxep_LBsjoP4bbrAstbQkTjiyQ&s"
+    ],
+    # ✅ AJOUT DE SOCIUMJOB ICI
+    "SociumJob": [
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium1.png?alt=media&token=ebc31bce-055d-400a-a553-f5433df24085",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium2.png?alt=media&token=e96da610-1d34-43ca-8eed-93952707eba5",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium3.png?alt=media&token=c6abf67e-911c-47c8-a801-1affb8641025"
+    ],
+    # ✅ AJOUT DE SOCIUMJOB ICI
+    "NovoJob": [
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob1.png?alt=media&token=219a2388-447e-4c11-bbad-f058b7369396",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob2.png?alt=media&token=a2d429ad-88ff-405b-abb3-e64a4cafcf53",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob3.png?alt=media&token=b78f4c63-19b8-48c2-b1da-e79e22320920"
+    ],
+    # ✅ AJOUT DE PROJOBIVOIR ICI educarriere
+    "ProJob Ivoire": [
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire1.png?alt=media&token=d5ab3658-fdf9-4d5c-9055-787f06f8006f",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire2.png?alt=media&token=934c3f12-f508-463f-bd5c-db0eb29743f0",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire3.png?alt=media&token=7c96a39f-a3f6-465b-8629-ebc4b359c141"
+    ],
+    "Option Carrière": [ 
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri1.png?alt=media&token=eadc3a53-afe0-46ce-a36c-7d3f1456662b",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri2.png?alt=media&token=51182f7d-6110-4f08-bc99-32d69eea5ec6",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri3.png?alt=media&token=66b00166-fb15-41c9-8b1d-18e6ef72aabf"
+    ],
+    "Educarriere": [ 
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere1.png?alt=media&token=e09243d2-1550-4e5c-af87-e2cf10c99a9d",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere2.png?alt=media&token=b5fd06f5-0df8-4eb4-9a55-aed4f5c404c0",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere3.png?alt=media&token=9b39073d-6662-460d-82a6-17cc8e92fc63"
+    ], 
+    "ENS (Ablanian)": [ 
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens1.png?alt=media&token=6f4c18d5-cfb0-4924-91d1-80f16ecb20e2",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens2.png?alt=media&token=b512e5e5-867e-44ea-aa94-ec2841f7f35d",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens3.png?alt=media&token=ac2561ee-7fda-4af4-9bc2-84af540541d1"
+    ],
+    "DAAD": [ 
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads1.png?alt=media&token=1265c4b8-5ad3-4d1c-a3cb-fa6a85c90ab5",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads2.png?alt=media&token=26b5de71-701c-4528-b38a-5f998d87fea0",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads3.png?alt=media&token=0a4fde8b-83a2-4906-aa9d-6cbf5fcc59d4"
+    ],
+    "Educarriere Formations": [ 
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere1.png?alt=media&token=e09243d2-1550-4e5c-af87-e2cf10c99a9d",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere2.png?alt=media&token=b5fd06f5-0df8-4eb4-9a55-aed4f5c404c0",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere3.png?alt=media&token=9b39073d-6662-460d-82a6-17cc8e92fc63"
+    ],
+    "Kaggle": [ 
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle1.png?alt=media&token=55f6092a-356b-465c-a82f-88bc28572c89",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle2.png?alt=media&token=c0da6d48-0198-4ad7-8dfd-cbbd072e67b4",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle3.png?alt=media&token=e71aea7d-0c20-4043-bfe2-2f216873f3d2"
+    ],
+    "Agence Emploi Jeunes": [ 
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi1.png?alt=media&token=7d666cfc-f3d3-4f45-8ed1-1ecc0ad4e46c",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi2.png?alt=media&token=49bdbf76-e069-44dc-8167-486b3c0a91e3",
+        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi3.png?alt=media&token=3afccd8e-9d54-4fe2-b3a5-c430267b5ec1"
     ]
 }
 
 
+
+
+
+checked_sources_cache = set()
+
+def check_and_notify_new_source(source_name):
+    """
+    Vérifie si une source est nouvelle. Utilise un cache local pour éviter
+    de lire Firestore 50 fois pour la même source.
+    """
+    if not source_name:
+        return
+
+    # Nettoyage du nom
+    source_id = source_name.strip().lower().replace(" ", "_")
+
+    # 1. Si on a déjà vérifié cette source pendant ce lancement, on arrête tout de suite
+    if source_id in checked_sources_cache:
+        return 
+
+    # 2. Sinon, on vérifie dans Firestore
+    source_ref = db.collection('known_sources').document(source_id)
+    doc = source_ref.get()
+    
+    if not doc.exists:
+        print(f"✨ Nouvelle source détectée : {source_name}")
+        
+        # Enregistrement dans Firestore
+        source_ref.set({
+            'name': source_name,
+            'first_seen': firestore.SERVER_TIMESTAMP
+        })
+        
+        # ✅ CORRECTION : Envoi de la notif avec les bons arguments
+        # Vérifie bien que ta fonction send_notification_to_topic accepte ces arguments (topic, title, body)
+        send_notification_to_topic(
+            topic="all", # Remplace "all" par le nom de ton topic si c'est différent
+            title="🌟 Nouvelle source d'opportunités !",
+            body=f"Découvrez dès maintenant les offres de {source_name} sur l'application Marabo."
+        )
+    
+    # 3. On ajoute au cache pour ne plus revérifier cette source ID aujourd'hui
+    checked_sources_cache.add(source_id)
+
+
+
 def choose_image(source: str):
+    """
+    Choisit une image dans le dictionnaire en fonction de la source.
+    Utilise .get() pour gérer les clés manquantes sans planter.
+    """
+    # Si la source est dans notre dictionnaire, on prend une image au hasard de sa liste
     if source in local_images:
         return random.choice(local_images[source])
-    return random_image()  # fallback aléatoire
-
+    
+    # Sinon, on retourne le fallback aléatoire
+    print(f"⚠️ Aucune image spécifique trouvée pour la source : '{source}'. Utilisation d'une image aléatoire.")
+    return random_image()
 
 
 def parse_date_fr(date_str):
@@ -156,10 +294,61 @@ def generate_numeric_id(title: str, date_end: str) -> int:
     return int(hash_object.hexdigest()[:12], 16)
 
 
-def generate_ai_summary_gemini(title, category, source, description=""):
+# def generate_ai_summary_gemini(title, category, source, description=""):
     
     
-    prompt = f"Résumé en français de l'opportunité suivante:\nTitre: {title}\nCatégorie: {category}\nSource: {source}\nDescription: {description}\nRends-le clair et engageant."
+#     prompt = f"Résumé en français de l'opportunité suivante:\nTitre: {title}\nCatégorie: {category}\nSource: {source}\nDescription: {description}\nRends-le clair et engageant."
+
+#     headers = {
+#         "Content-Type": "application/json"
+#     }
+
+#     data = {
+#         "contents": [
+#             {
+#                 "parts": [
+#                     {"text": prompt}
+#                 ]
+#             }
+#         ]
+#     }
+
+#     try:
+#         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
+#         response.raise_for_status()
+#         result = response.json()
+#         # Récupération du texte renvoyé par Gemini
+#         ai_summary = result["candidates"][0]["content"]["parts"][0]["text"]
+#         return ai_summary
+#     except Exception as e:
+#         print("Erreur Gemini:", e, response.text if 'response' in locals() else "")
+#         return f"L’IA n’a pas pu générer de résumé pour '{title}'."
+
+
+def generate_ai_summary(category, source):
+    """
+    Génère un résumé IA dynamique basé sur la catégorie et la source.
+    """
+    return f"L’IA a détecté un {category.lower()} publié par {source}."
+
+
+
+
+def analyze_opportunity_with_gemini(title, category, source, description=""):
+    # Le prompt magique : on force Gemini à renvoyer du JSON
+    prompt = f"""Analyse l'opportunité suivante et extrais les informations clés.
+Titre: {title}
+Catégorie: {category}
+Source: {source}
+Description: {description}
+
+Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valide, avec la structure exacte suivante :
+{{
+    "summary": "Un résumé clair et engageant en 2 ou 3 phrases.",
+    "company_name": "Nom de l'entreprise ou de l'organisation. Si introuvable, mets 'Non spécifié'",
+    "exact_location": "Ville précise (ex: Abidjan, Bouaké, Yamoussoukro, Remote). Si introuvable, mets 'Non spécifié'",
+    "required_skills": ["Compétence 1", "Compétence 2", "Compétence 3"]
+}}"""
 
     headers = {
         "Content-Type": "application/json"
@@ -179,23 +368,81 @@ def generate_ai_summary_gemini(title, category, source, description=""):
         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
         response.raise_for_status()
         result = response.json()
-        # Récupération du texte renvoyé par Gemini
-        ai_summary = result["candidates"][0]["content"]["parts"][0]["text"]
-        return ai_summary
+        
+        # Récupération du texte brut de l'IA
+        ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+        
+        # Nettoyage : parfois Gemini entoure le JSON avec ```json ... ```
+        ai_text = re.sub(r"^```json\s*", "", ai_text, flags=re.IGNORECASE)
+        ai_text = re.sub(r"\s*```$", "", ai_text).strip()
+        
+        # Transformation du texte en vrai dictionnaire Python
+        ai_data = json.loads(ai_text)
+        return ai_data
+
     except Exception as e:
-        print("Erreur Gemini:", e, response.text if 'response' in locals() else "")
-        return f"L’IA n’a pas pu générer de résumé pour '{title}'."
+        print("Erreur Gemini (ou parsing JSON):", e)
+        # Fallback de sécurité au cas où l'IA échoue
+        return {
+            "summary": f"L’IA n’a pas pu générer de résumé pour '{title}'.",
+            "company_name": "Non spécifié",
+            "exact_location": "Non spécifié",
+            "required_skills": []
+        }
 
 
-def generate_ai_summary(category, source):
+
+def extract_opportunity_from_email_with_gemini(email_text):
+    """Demande à Gemini d'extraire les infos OU de rejeter si ce n'est pas une opportunité."""
+    
+    prompt = f"""
+    Voici le contenu d'un e-mail :
+    
+    {email_text}
+    
+    Mission 1 : Détermine si ce texte est VÉRITABLEMENT une offre d'opportunité. 
+    Les SEULES catégories acceptées sont strictement : "Formations", "Emplois", "Stages", "Concours".
+    Si l'e-mail est personnel, une discussion, une publicité ou hors de ces catégories, renvoie EXACTEMENT ce JSON et rien d'autre :
+    {{"est_opportunite": false}}
+
+    Mission 2 : Si c'est bien une opportunité valide, extrais les informations sous forme d'un objet JSON strict :
+    {{
+        "est_opportunite": true,
+        "titre": "Nom de l'opportunité",
+        "description": "Un résumé accrocheur en 2-3 phrases",
+        "categorie": "Choisis uniquement parmi: Formations, Emplois, Stages, Concours",
+        "source": "Nom de l'organisation",
+        "lien_inscription": "Le lien web mentionné, ou vide",
+        "date_limite": "Date au format JJ-MM-AAAA, ou vide"
+    }}
+    
+    Renvoie UNIQUEMENT le code JSON, sans markdown ni texte autour.
     """
-    Génère un résumé IA dynamique basé sur la catégorie et la source.
-    """
-    return f"L’IA a détecté un {category.lower()} publié par {source}."
+
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+
+    try:
+        response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=20)
+        response.raise_for_status()
+        result = response.json()
+        ai_response = result["candidates"][0]["content"]["parts"][0]["text"]
+        
+        clean_json = ai_response.replace('```json', '').replace('```', '').strip()
+        return json.loads(clean_json)
+    except Exception as e:
+        print("❌ Erreur d'extraction Gemini :", e)
+        return None
 
 
 
-def send_notification(tokens, title, body, data={"screen": "/alerts"}):
+# J'ai remplacé la valeur par défaut de data par None, puis je l'assigne à un dict vide.
+def send_notification(tokens, title, body, data=None):
+    if data is None:
+        data = {} # Par défaut, on n'envoie pas de data spécifique
+
     url = "https://fcm.googleapis.com/v1/projects/marabo-80906/messages:send"
     headers = {
         "Authorization": f"Bearer {get_fcm_access_token()}",
@@ -210,7 +457,7 @@ def send_notification(tokens, title, body, data={"screen": "/alerts"}):
                     "title": title,
                     "body": body
                 },
-                "data": data or {},
+                "data": data, # 👈 Les data sont insérées ici
                 "android": {
                     "notification": {
                         "click_action": "FLUTTER_NOTIFICATION_CLICK"
@@ -236,7 +483,6 @@ def send_notification(tokens, title, body, data={"screen": "/alerts"}):
                 error_code = res_json.get("error", {}).get("details", [{}])[0].get("errorCode")
                 if error_code == "UNREGISTERED":
                     print(f"⚠️ Token invalide détecté → suppression du Firestore : {token}")
-                    # Recherche dans Firestore et supprime le token
                     users = db.collection("users").where("fcm_token", "==", token).stream()
                     for user in users:
                         db.collection("users").document(user.id).update({"fcm_token": firestore.DELETE_FIELD})
@@ -244,6 +490,273 @@ def send_notification(tokens, title, body, data={"screen": "/alerts"}):
                 print("⚠️ Erreur nettoyage token:", cleanup_error)
 
 
+
+def send_push_to_user(user_id, title, body, data=None):
+    """Récupère le token d'un user et lui envoie une notif"""
+    try:
+        # 1. Récupérer le profil de l'utilisateur (Entreprise)
+        user_doc = db.collection('users').document(user_id).get()
+        if not user_doc.exists:
+            print(f"⚠️ User {user_id} introuvable.")
+            return
+
+        user_data = user_doc.to_dict()
+        fcm_token = user_data.get('fcm_token')
+
+        if not fcm_token:
+            print(f"⚠️ Pas de token FCM pour l'user {user_id}")
+            return
+
+        # 2. Préparer le message via Firebase Admin (plus fiable que requests manuel)
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=body,
+            ),
+            data=data or {},
+            token=fcm_token,
+            android=messaging.AndroidConfig(
+                priority='high',
+                notification=messaging.AndroidNotification(
+                    click_action="FLUTTER_NOTIFICATION_CLICK",
+                    channel_id="high_importance_channel" # Assure-toi d'avoir ce channel côté Flutter
+                ),
+            ),
+        )
+
+        # 3. Envoyer
+        response = messaging.send(message)
+        print(f"✅ Notif envoyée à {user_id} : {response}")
+
+    except Exception as e:
+        print(f"❌ Erreur envoi notif user : {e}")
+
+
+
+
+
+
+def notify_users_by_interest(opportunity_id, opportunity_title, category, source="", date_end=None):
+    """
+    1. Vérifie que l'offre n'est pas expirée.
+    2. Cherche les utilisateurs intéressés.
+    3. Sauvegarde la notif dans Firestore.
+    4. Envoie le Push (FCM) SAUF si la source est Kaggle.
+    """
+    # On bloque tout si c'est déjà expiré
+    if is_opportunity_expired(date_end):
+        print(f"⏳ Offre expirée ({opportunity_title}), aucune notification envoyée ou sauvegardée.")
+        return
+
+    # 🛑 OPTION : Si tu ne veux MÊME PAS que la notif Kaggle apparaisse 
+    # dans l'onglet "Notifications" de ton application, décommente ces lignes :
+    # if source.strip().lower() == "kaggle":
+    #     print(f"🚫 Notification annulée à 100% car la source est Kaggle.")
+    #     return
+
+    print(f"🔍 Recherche d'utilisateurs intéressés par : {category}")
+    
+    users_ref = db.collection('users').where('interests', 'array_contains', category).stream()
+    tokens_to_notify = []
+    
+    for user in users_ref:
+        user_data = user.to_dict()
+        user_id = user.id
+        
+        # 1. Sauvegarder la notif dans Firestore (les users verront la cloche dans l'app)
+        notif_data = {
+            "title": f"Nouvelle opportunité : {category}",
+            "message": opportunity_title,
+            "createdAt": firestore.SERVER_TIMESTAMP,
+            "isRead": False,
+            "type": "opportunity",
+            "opportunityId": str(opportunity_id)
+        }
+        db.collection('users').document(user_id).collection('notifications').add(notif_data)
+        
+        # 2. Récupérer le token
+        if 'fcm_token' in user_data and user_data['fcm_token']:
+            tokens_to_notify.append(user_data['fcm_token'])
+            
+    # 3. Envoyer le Push groupé
+    if tokens_to_notify:
+        # 🎯 L'EXCEPTION EST ICI : On envoie le push UNIQUEMENT si ce n'est pas Kaggle
+        if source.strip().lower() == "kaggle":
+            print(f"🤫 Push silencieux : On n'envoie pas de Push FCM pour Kaggle ({opportunity_title}).")
+        else:
+            send_notification(
+                tokens=tokens_to_notify,
+                title=f"Nouveau dans vos intérêts : {category} !",
+                body=opportunity_title,
+                # 👇 LE PAYLOAD ADAPTÉ POUR FLUTTER
+                data={
+                    "type": "opportunity", 
+                    "opportunityId": str(opportunity_id)
+                }
+            )
+            print(f"✅ Notif push envoyée à {len(tokens_to_notify)} utilisateurs.")
+    else:
+        print("🤷‍♂️ Aucun utilisateur n'a cet intérêt ou aucun token valide trouvé.")
+
+
+
+
+def is_opportunity_expired(date_str) -> bool:
+    """Vérifie si une date donnée est antérieure à la date du jour (expirée)."""
+    if not date_str:
+        return False
+        
+    now = datetime.utcnow().date()
+    
+    # Si c'est déjà un objet datetime (ex: Timestamp Firestore)
+    if isinstance(date_str, datetime):
+        return date_str.date() < now
+        
+    # Si c'est un string, on tente de le parser
+    for fmt in ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d"]:
+        try:
+            clean_date = str(date_str).strip()
+            opp_date = datetime.strptime(clean_date, fmt).date()
+            return opp_date < now
+        except ValueError:
+            continue
+            
+    return False
+
+
+
+
+class ApplicationModel(BaseModel):
+    applicant_uid: str   # ID du particulier
+    applicant_name: str  # Nom du particulier
+    opportunity_id: str  # ID de l'offre
+    company_uid: str     # ID de l'entreprise (postedBy)
+    message: str = ""    # Lettre de motivation courte
+
+
+
+
+
+@app.post("/apply")
+async def apply_for_job(
+    applicant_uid: str = Form(...),
+    applicant_name: str = Form(...),
+    opportunity_id: str = Form(...),
+    company_uid: str = Form(...),
+    category: str = Form(...),                  # 💡 NOUVEAU : Récupère la catégorie
+    message: Optional[str] = Form(None),        # 💡 NOUVEAU : Message optionnel
+    cv_file: Optional[UploadFile] = File(None), # 💡 CHANGÉ : Optionnel
+    lm_file: Optional[UploadFile] = File(None)  # 💡 CHANGÉ : Optionnel
+):
+    try:
+        bucket = storage.bucket() # Récupère le bucket configuré plus haut
+        
+        cv_url = None
+        lm_url = None
+
+        # --- 1. Upload du CV (Seulement s'il est fourni) ---
+        if cv_file and cv_file.filename:
+            blob_cv = bucket.blob(f"candidatures/{opportunity_id}/{applicant_uid}_cv_{cv_file.filename}")
+            blob_cv.upload_from_file(cv_file.file, content_type=cv_file.content_type)
+            blob_cv.make_public() 
+            cv_url = blob_cv.public_url
+
+        # --- 2. Upload de la LM (Seulement si elle est fournie) ---
+        if lm_file and lm_file.filename:
+            blob_lm = bucket.blob(f"candidatures/{opportunity_id}/{applicant_uid}_lm_{lm_file.filename}")
+            blob_lm.upload_from_file(lm_file.file, content_type=lm_file.content_type)
+            blob_lm.make_public()
+            lm_url = blob_lm.public_url
+
+        # --- 3. Enregistrement Firestore (CANDIDATURE) ---
+        app_data = {
+            "applicantId": applicant_uid,
+            "applicantName": applicant_name,
+            "opportunityId": opportunity_id,
+            "companyId": company_uid,
+            "category": category, # On garde une trace de la catégorie
+            "createdAt": firestore.SERVER_TIMESTAMP,
+            "status": "pending"
+        }
+        
+        # On n'ajoute ces champs à Firestore que s'ils existent
+        if cv_url:
+            app_data["cvUrl"] = cv_url
+        if lm_url:
+            app_data["lmUrl"] = lm_url
+        if message:
+            app_data["message"] = message
+
+        # On insère dans la base
+        update_time, app_ref = db.collection('applications').add(app_data)
+
+        # --- 🧠 LOGIQUE DE NOTIFICATION DYNAMIQUE ---
+        is_job_or_project = category in ['Emplois', 'Stages', 'Bourses', 'Subventions / Financements', 'Appels à projets']
+        
+        notif_title = "Nouvelle Candidature ! 📂" if is_job_or_project else "Nouvelle Inscription ! 🎉"
+        notif_body = f"{applicant_name} a envoyé son dossier." if is_job_or_project else f"{applicant_name} vient de s'inscrire."
+        
+        # S'il y a un message (pour les événements), on l'ajoute à la notification
+        if message:
+            notif_body += f" Message : {message}"
+
+        # --- 4. Enregistrement Firestore (NOTIFICATION VISUELLE) ---
+        notification_data = {
+            "recipientId": company_uid,
+            "title": notif_title,
+            "body": notif_body,
+            "isRead": False,
+            "createdAt": firestore.SERVER_TIMESTAMP,
+            "type": "candidature", # Tu peux garder 'candidature' ou le changer selon tes icônes côté Flutter
+            "relatedId": opportunity_id,
+            "applicationId": app_ref.id
+        }
+        
+        # ON ÉCRIT DANS LA SOUS-COLLECTION DU USER
+        db.collection('users').document(company_uid).collection('notifications').add(notification_data)
+
+        # --- 5. Envoi du PUSH (Le "Bip" sur le téléphone) ---
+        # Note : assure-toi que ta fonction send_push_to_user gère bien ces paramètres !
+        send_push_to_user(
+            user_id=company_uid,
+            title=notif_title,
+            body=notif_body,
+            data={"type": "candidature", "opp_id": opportunity_id}
+        )
+
+        success_msg = "Dossier envoyé avec succès." if is_job_or_project else "Inscription confirmée avec succès."
+        return {"status": "success", "message": success_msg}
+
+    except Exception as e:
+        print(f"Erreur candidature upload: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+
+#lorsque les entreprises publient une annonce
+def send_opportunity_notification_to_all(opportunity_title, company_name, category, opp_id):
+    # 1. Préparation du message pour le Topic 'new_sources'
+    message = messaging.Message(
+        notification=messaging.Notification(
+            title=f"Nouvelle opportunité ({category}) 🚀",
+            body=f"{company_name} vient de publier : {opportunity_title}"
+        ),
+        data={
+            "type": "nouvelle_opportunite", # Pour que Flutter sache quoi ouvrir
+            "opportunityId": str(opp_id)
+        },
+        topic="new_sources" # Le nom exact du topic dans ton main.dart
+    )
+
+    # 2. Envoi via Firebase
+    try:
+        response = messaging.send(message)
+        print(f"✅ Notification de masse envoyée avec succès : {response}")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi de la notification de masse : {e}")
+
+# Appel de la fonction après la création en base :
+# send_opportunity_notification_to_all("Développeur Flutter", "Tech Corp", "Emploi", new_opp_ref.id)
 
 
 
@@ -416,9 +929,20 @@ async def confirm_payment(request: Request):
 
 
 
-def build_opportunity(opp_id, title, category, source, date_start, date_end, url, badge_color, description="", image_url=None):
+
+def build_opportunity(opp_id, title, category, source, date_start, date_end, url, badge_color, description="", isFeatured=False, image_url=None):
     if not date_start:
         date_start = date_end
+
+    # 1. On lance l'analyse IA
+    ai_data = analyze_opportunity_with_gemini(title, category, source, description)
+
+    # 2. Gestion intelligente de la localisation
+    # Si c'est Kaggle, c'est Global. Sinon, on prend la ville trouvée par l'IA. 
+    # Si l'IA n'a rien trouvé, on met "Côte d’Ivoire" par défaut.
+    location = "Global" if source == "Kaggle" else ai_data.get("exact_location", "Non spécifié")
+    if location == "Non spécifié" and source != "Kaggle":
+        location = "Côte d’Ivoire"
 
     return {
         "id": opp_id,
@@ -428,12 +952,19 @@ def build_opportunity(opp_id, title, category, source, date_start, date_end, url
         "views": 0,
         "date_start": parse_date_fr(date_start),
         "date_end": parse_date_fr(date_end),
-        "location": "Global" if source == "Kaggle" else "Côte d’Ivoire",
+        
+        # --- NOUVEAUX CHAMPS DATA-DRIVEN ---
+        "location": location, 
+        "company_name": ai_data.get("company_name", "Non spécifié"),
+        "required_skills": ai_data.get("required_skills", []),
+        "aiSummary": ai_data.get("summary", ""),
+        # -----------------------------------
+        
         "summary": f"Inscrivez-vous du {date_start} au {date_end}",
-        "aiSummary": generate_ai_summary_gemini(title, category, source, description),
         "badgeColor": badge_color,
         "url": url,
-         "imageUrl": image_url if image_url else choose_image(source)
+        "isFeatured": isFeatured,
+        "imageUrl": image_url if image_url else choose_image(source)
     }
 
 
@@ -445,82 +976,257 @@ def list_opportunities():
 
 
 
+
 def delete_expired_opportunities():
-        now = datetime.utcnow().date()  # on compare seulement les dates
-        deleted = 0
-        all_docs = db.collection("opportunities").stream()
+    now = datetime.utcnow().date()
+    deleted = 0
+    all_docs = db.collection("opportunities").stream()
 
-        for doc in all_docs:
-            data = doc.to_dict()
-            try:
-                # Priorité à date_end, sinon date_start
-                date_str = data.get("date_end") or data.get("date_start")
-                if not date_str:
-                    continue
-
-                # Si c'est déjà un datetime (Firestore Timestamp)
-                if isinstance(date_str, datetime):
-                    opp_date = date_str.date()
-                else:
-                    # Normaliser les formats possibles
-                    for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
-                        try:
-                            opp_date = datetime.strptime(str(date_str), fmt).date()
-                            break
-                        except ValueError:
-                            continue
-                    else:
-                        print(f"⚠️ Impossible de parser la date {date_str} pour {data.get('title')}")
-                        continue
-
-                # Suppression si date de fin dépassée
-                if opp_date < now:
-                    db.collection("opportunities").document(doc.id).delete()
-                    deleted += 1
-                    print(f"Supprimé: {data.get('title')} ({opp_date})")
-            except Exception as e:
-                print(f"Erreur suppression doc {doc.id}: {e}")
+    for doc in all_docs:
+        data = doc.to_dict()
+        try:
+            # Priorité à date_end, sinon date_start
+            date_str = data.get("date_end") or data.get("date_start")
+            if not date_str:
                 continue
 
-        return deleted
+            # Si c'est déjà un datetime (Firestore Timestamp)
+            if isinstance(date_str, datetime):
+                opp_date = date_str.date()
+            else:
+                formats_possibles = [
+                    "%Y-%m-%d", "%d-%m-%Y", 
+                    "%d/%m/%Y", "%Y/%m/%d"
+                ]
+                
+                opp_date = None
+                for fmt in formats_possibles:
+                    try:
+                        clean_date = str(date_str).strip()
+                        opp_date = datetime.strptime(clean_date, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                
+                if opp_date is None:
+                    continue
 
+            # Suppression si date de fin dépassée
+            if opp_date < now:
+                db.collection("opportunities").document(doc.id).delete()
+                deleted += 1
+                print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
+
+        except Exception as e:
+            print(f"Erreur suppression doc {doc.id}: {e}")
+            continue
+
+    return deleted
+
+
+
+
+def delete_notifications_for_opportunity(opportunity_id):
+    """
+    Cherche et supprime toutes les notifications liées à une opportunité spécifique
+    dans les sous-collections 'notifications' de tous les utilisateurs.
+    """
+    print(f"🧹 Nettoyage des notifications fantômes pour l'offre {opportunity_id}...")
+    try:
+        # Recherche via collection_group pour parcourir les sous-collections de tous les users
+        notifications_ref = db.collection_group('notifications')\
+            .where('opportunityId', '==', str(opportunity_id))\
+            .stream()
+        
+        deleted_count = 0
+        batch = db.batch()
+        
+        for notif in notifications_ref:
+            batch.delete(notif.reference)
+            deleted_count += 1
+            
+            # Commit par lots de 500 pour respecter les limites de Firestore
+            if deleted_count % 500 == 0:
+                batch.commit()
+                batch = db.batch() 
+                
+        # Commit du reste
+        if deleted_count % 500 != 0:
+            batch.commit()
+            
+        print(f"✅ {deleted_count} notifications supprimées pour {opportunity_id}.")
+        
+    except Exception as e:
+        print(f"❌ Erreur lors du nettoyage des notifications fantômes : {e}")
+
+
+def delete_expired_opportunities():
+    now = datetime.utcnow().date()
+    deleted = 0
+    all_docs = db.collection("opportunities").stream()
+
+    for doc in all_docs:
+        data = doc.to_dict()
+        try:
+            # Priorité à date_end, sinon date_start
+            date_str = data.get("date_end") or data.get("date_start")
+            if not date_str:
+                continue
+
+            # Si c'est déjà un datetime (Firestore Timestamp)
+            if isinstance(date_str, datetime):
+                opp_date = date_str.date()
+            else:
+                formats_possibles = [
+                    "%Y-%m-%d", "%d-%m-%Y", 
+                    "%d/%m/%Y", "%Y/%m/%d"
+                ]
+                
+                opp_date = None
+                for fmt in formats_possibles:
+                    try:
+                        clean_date = str(date_str).strip()
+                        opp_date = datetime.strptime(clean_date, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                
+                if opp_date is None:
+                    continue
+
+            # Suppression si date de fin dépassée
+            if opp_date < now:
+                # 1. On supprime l'offre principale
+                doc.reference.delete() # Un poil plus opti que db.collection(...).document(doc.id)
+                deleted += 1
+                print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
+
+                # 2. 👇 ON SUPPRIME LES NOTIFICATIONS FANTÔMES 👇
+                delete_notifications_for_opportunity(doc.id)
+
+        except Exception as e:
+            print(f"Erreur suppression doc {doc.id}: {e}")
+            continue
+
+    return deleted
+
+
+
+
+
+
+
+def check_expired_opportunities_and_notify():
+    """
+    Vérifie les offres expirées, change leur statut et notifie l'entreprise.
+    Ne supprime PAS le document.
+    """
+    now = datetime.utcnow().date()
+    processed_count = 0
     
+    # On cherche les offres qui ne sont PAS encore marquées 'expired'
+    docs = db.collection("opportunities").where("status", "!=", "expired").stream()
+
+    for doc in docs:
+        data = doc.to_dict()
+        opp_id = doc.id
+        
+        # Récupération de la date
+        date_str = data.get("date_end") or data.get("date_start")
+        if not date_str: continue
+
+        opp_date = None
+        try:
+             if isinstance(date_str, datetime):
+                opp_date = date_str.date()
+             else:
+                for fmt in ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d"]:
+                    try:
+                        clean_date = str(date_str).strip()
+                        opp_date = datetime.strptime(clean_date, fmt).date()
+                        break
+                    except ValueError: continue
+        except: continue
+
+        if opp_date and opp_date < now:
+            
+            # 1. Vérifier si c'est une offre Entreprise (qui a un postedBy)
+            company_uid = data.get('postedBy')
+            
+            # 2. Mise à jour Firestore : On marque comme expiré
+            db.collection("opportunities").document(opp_id).update({
+                "status": "expired",
+                "expirationNotified": True # Marqueur pour ne pas re-notifier
+            })
+
+            # 3. Si c'est une entreprise, on envoie le PUSH
+            if company_uid and data.get('expirationNotified') != True:
+                send_push_to_user(
+                    user_id=company_uid,
+                    title="Annonce Expirée ⏳",
+                    body=f"Votre annonce '{data.get('title')}' est arrivée à échéance.",
+                    # 👇 CORRECTION ICI : On ne garde qu'un seul "data" avec la bonne route Entreprise
+                    data={"type": "expiration", "opp_id": opp_id, "screen": "/notifEntreprise"}
+                )
+                print(f"🔔 Notif expiration envoyée à {company_uid}")
+            
+            processed_count += 1
+
+    return processed_count
+    
+
+
 
 def notify_new_opportunities():
     print("🔔 Vérification des opportunités non notifiées...")
     opp_ref = db.collection("opportunities")
     
-    # Correction ici : enlever 'filter='
     query = opp_ref.where("notified", "==", False).stream()
     
     for opp_doc in query:
         opp = opp_doc.to_dict()
+        opp_id = opp_doc.id
         
-        tokens = get_interested_users(opp["category"])
+        # 1. Vérifier si l'opportunité est déjà expirée
+        date_str = opp.get("date_end") or opp.get("date_start")
+        if is_opportunity_expired(date_str):
+            print(f"⏳ Ignorée car déjà expirée : {opp.get('title')}")
+            # On marque comme notifiée et expirée pour ne plus la traiter, 
+            # MAIS on n'envoie pas de push et on ne sauvegarde rien chez l'user.
+            opp_ref.document(opp_id).update({
+                "notified": True,
+                "status": "expired"
+            })
+            continue
+
+        # 2. Si elle est valide, on notifie les utilisateurs intéressés
+        tokens = get_interested_users(opp.get("category", ""))
         if tokens:
             send_notification(
-                tokens,
-                opp["title"],
-                opp.get("aiSummary", ""),
-                data={"opportunityId": opp["id"]}
+                tokens=tokens,
+                title=opp.get("title", "Nouvelle opportunité"),
+                body=opp.get("aiSummary", "Découvrez cette nouvelle offre !"),
+                # 👇 C'est ici qu'on prépare le terrain pour Flutter au clic
+                data={
+                    "opportunityId": str(opp_id), 
+                    "screen": "/details_opportunite" # Adapte ce nom selon ta route Flutter
+                }
             )
         
-        # Marquer comme notifié
-        opp_ref.document(opp_doc.id).update({"notified": True})
-        print(f"✅ Opportunité notifiée: {opp['title']}")
-
+        # 3. Marquer comme notifié dans la base
+        opp_ref.document(opp_id).update({"notified": True})
+        print(f"✅ Opportunité notifiée: {opp.get('title')}")
 
 
 async def cron_notify_async():
     while True:
         try:
-            delete_expired_opportunities()
+            # check_expired_opportunities_and_notify() remplace delete_expired...
+            check_expired_opportunities_and_notify() 
             notify_new_opportunities()
         except Exception as e:
             print("⚠️ Erreur dans le cron:", e)
-        await asyncio.sleep(60)
-
-
+        await asyncio.sleep(60) # Vérifie toutes les minutes
 
 
 
@@ -547,38 +1253,63 @@ def mark_seen(opp_id: str, body: MarkSeenBody):
 
 
 
+
+
 # ---------- SCRAPING ENA ----------
 def scrape_ena_directs():
-    url = "https://gucaci.ciconcours.com/concours-2025/liste-concours/ENA/1/2"
-    resp = requests.get(url, timeout=10)
-    resp.raise_for_status()
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    rows = soup.select("div.my-3 table#table-liste tbody tr")
+    # On tape directement sur la bonne URL 2026
+    target_url = "https://gucaci.ciconcours.com/concours-2026/liste-concours/ENA/1/2"
+    used_url = "https://gucaci.ciconcours.com/" # URL par défaut si tout plante
+    
+    soup = None
+    
+    # 1. TENTATIVE DE CONNEXION À L'URL 2026
+    try:
+        resp = requests.get(target_url, timeout=10)
+        if resp.status_code == 200:
+            temp_soup = BeautifulSoup(resp.text, "html.parser")
+            # On vérifie si le tableau est bien là (et non pas une page de maintenance)
+            if temp_soup.select("div.my-3 table#table-liste tbody tr"):
+                soup = temp_soup
+                used_url = target_url
+    except requests.exceptions.RequestException:
+        pass # Si ça plante, on passe directement au plan de secours plus bas
+        
     items = []
-    for tr in rows:
-        cols = [td.get_text(strip=True) for td in tr.find_all("td")]
-        if len(cols) < 4:
-            continue
-        _, title, date_start, date_end = cols[:4]
+    
+    # 2. SI LE SITE FONCTIONNE (on a trouvé le tableau)
+    if soup:
+        rows = soup.select("div.my-3 table#table-liste tbody tr")
+        for tr in rows:
+            cols = [td.get_text(strip=True) for td in tr.find_all("td")]
+            if len(cols) < 4:
+                continue
+                
+            _, title, date_start, date_end = cols[:4]
 
-        link_tag = tr.find("a", string=lambda t: t and "communiqué" in t.lower())
-        link = link_tag['href'] if link_tag and link_tag.has_attr('href') else url
+            # On cherche le lien du communiqué PDF
+            link_tag = tr.find("a", string=lambda t: t and "communiqué" in t.lower())
+            link = link_tag['href'] if link_tag and link_tag.has_attr('href') else used_url
 
-        opp_id = str(generate_numeric_id(title, date_end))
-        items.append(build_opportunity(
-            opp_id=opp_id,
-            title=title,
-            category="Concours",
-            source="GUCACI ENA",
-            date_start=date_start,
-            date_end=date_end,
-            url=url,
-            badge_color="red",
-            description=f"Du {date_start} au {date_end}, concours organisé par GUCACI ENA."
-        ))
+            opp_id = str(generate_numeric_id(title, date_end))
+            source = "GUCACI ENA"
+            
+            check_and_notify_new_source(source)
+
+            items.append(build_opportunity(
+                opp_id=opp_id,
+                title=title,
+                category="Concours",
+                source=source,
+                date_start=date_start,
+                date_end=date_end,
+                url=used_url,  # <-- Correction ici : on utilise le lien du communiqué !
+                badge_color="red",
+                description=f"Du {date_start} au {date_end}, concours organisé par GUCACI ENA.",
+                isFeatured=True
+            ))
+        
     return items
-
 
 
 # ---------- SCRAPING INFAS ----------
@@ -622,6 +1353,13 @@ def scrape_infas():
                 date_start = date_end = date_block.strip()
 
             opp_id = str(generate_numeric_id(title, date_end))
+
+
+            source = "INFAS"
+
+            # ✅ AJOUT ICI
+            check_and_notify_new_source(source)
+            
             items.append(build_opportunity(
                 opp_id=opp_id,
                 title=title,
@@ -631,9 +1369,117 @@ def scrape_infas():
                 date_end=date_end,
                 url=url,
                 badge_color="green",
-                description=f"Du {date_start} au {date_end}, concours organisé par  INFAS."
+                description=f"Du {date_start} au {date_end}, concours organisé par  INFAS.",
+                isFeatured=True
             ))
     return items
+
+
+
+# ---------- SCRAPING CAFOP VIA ABLANIAN ----------
+def scrape_cafop():
+    url = "https://ablanian.ci/concours_admin/view.php?slug=cafopia"
+    items = []
+
+    try:
+        # On utilise un User-Agent pour éviter d'être bloqué
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=15)
+        
+        if resp.status_code != 200:
+            print(f"⚠️ Impossible d'accéder à {url} (Code: {resp.status_code})")
+            return []
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # 1. Extraction du TITRE
+        title_tag = soup.find("h1")
+        if title_tag:
+            title = title_tag.get_text(strip=True)
+        else:
+            title = "Concours CAFOP 2026 (Instituteurs Adjoints)"
+
+        # 2. Extraction des DATES (Adaptée à la nouvelle structure HTML)
+        date_start, date_end = "", ""
+        
+        page_text = soup.get_text(separator=" ", strip=True)
+
+        # 🎯 NOUVEAU PATTERN : On cherche "Début :" et "Clôture :" séparément
+        match_debut = re.search(r"Début\s*:\s*(\d{2}/\d{2}/\d{4})", page_text, re.IGNORECASE)
+        match_cloture = re.search(r"Clôture\s*:\s*(\d{2}/\d{2}/\d{4})", page_text, re.IGNORECASE)
+        
+        if match_debut and match_cloture:
+            date_start = match_debut.group(1)
+            date_end = match_cloture.group(1)
+        else:
+            # FALLBACK FORT : Si le design change encore, on force les dates officielles
+            date_start = "08/12/2025" 
+            date_end = "13/02/2026"
+
+        # 3. Extraction de la DESCRIPTION
+        conditions = "Conditions non spécifiées."
+        age_match = re.search(r"Âge requis\s*(.*?)(Nationalité|Diplômes|$)", page_text, re.IGNORECASE)
+        diploma_match = re.search(r"Diplômes acceptés\s*(.*?)(Condition|Autres|$)", page_text, re.IGNORECASE)
+        
+        desc_parts = []
+        if age_match:
+            desc_parts.append(f"Âge : {age_match.group(1).strip()}")
+        if diploma_match:
+            desc_parts.append(f"Diplôme : {diploma_match.group(1).strip()}")
+            
+        if desc_parts:
+            conditions = " | ".join(desc_parts)
+        else:
+            conditions = "Concours direct d'entrée dans les CAFOP (Instituteurs Adjoints)."
+
+        description = f"{conditions}. Période : Du {date_start} au {date_end}."
+
+        # 4. Construction de l'objet Opportunité
+        year_match = re.search(r"20\d{2}", title)
+        year = year_match.group(0) if year_match else "2026"
+        
+        opp_id = str(generate_numeric_id("CAFOP", year))
+        source_name = "CAFOP (Ablanian)"
+
+        check_and_notify_new_source(source_name)
+
+        items.append(build_opportunity(
+            opp_id=opp_id,
+            title=title,
+            category="Concours",
+            source=source_name,
+            date_start=date_start,
+            date_end=date_end,
+            url=url, 
+            badge_color="orange",
+            description=description,
+            isFeatured=True
+        ))
+
+    except Exception as e:
+        print(f"❌ Erreur scraping CAFOP (Ablanian) : {e}")
+        # FALLBACK CRITIQUE
+        try:
+            items.append(build_opportunity(
+                opp_id="CAFOP_FALLBACK_2026",
+                title="Concours CAFOP 2026 (Info récupérée)",
+                category="Concours",
+                source="DECO",
+                date_start="08/12/2025", 
+                date_end="13/02/2026",
+                url="https://men-deco.org",
+                badge_color="red",
+                description="Le site source est temporairement inaccessible. Les inscriptions pour le CAFOP 2026 sont officiellement lancées.",
+                isFeatured=True # N'oublie pas le isFeatured ici aussi !
+            ))
+        except:
+            pass
+
+    return items
+
+
 
 
 # ---------- SCRAPING EAUX ET FORETS ----------
@@ -665,16 +1511,14 @@ def scrape_minef_concours():
                     date_end=date_end,
                     url=url,
                     badge_color="blue",
-                    description=f"Du {date_start} au {date_end}, concours organisé par GUCACI ENA."
+                    description=f"Du {date_start} au {date_end}, concours organisé par GUCACI ENA.",
+                    isFeatured=True
                 ))
     return items
 
 
 
-
-
-
-# ---------- SCRAPING NOVOJOBS (Version Selenium) ----------
+# ---------- SCRAPING NOVOJOBS (Version Selenium Optimisée) ----------
 def scrape_novojob():
     urls = [
         "https://www.novojob.com/cote-d-ivoire/offres-d-emploi/offres-par-fonction/372-production-methode-industrie",
@@ -683,7 +1527,7 @@ def scrape_novojob():
     ]
     
     items = []
-    driver = None # On initialise la variable
+    driver = None 
 
     mois_map = {
         "janvier": "01", "février": "02", "mars": "03", "avril": "04",
@@ -692,7 +1536,7 @@ def scrape_novojob():
     }
 
     try:
-        # 1. On lance le navigateur virtuel (Fonction get_driver définie plus bas)
+        # 1. On lance le navigateur virtuel
         driver = get_driver()
 
         for url in urls:
@@ -700,92 +1544,249 @@ def scrape_novojob():
                 print(f"🔄 Scraping Novojob: {url}")
                 driver.get(url)
                 
-                # 2. PAUSE OBLIGATOIRE : On attend 3 secondes que le site charge le contenu
+                # 2. PAUSE : On attend que le site charge le contenu
                 time.sleep(3) 
 
-                # 3. On récupère le code source de la page chargée
+                # 3. On récupère le code source
                 soup = BeautifulSoup(driver.page_source, "html.parser")
-
-                # --- Début de ton code de parsing original ---
                 jobs = soup.select("div.row-fluid.job-details.pointer")
                 
                 for job in jobs:
-                    a_tag = job.find("a", title=True)
-                    title = a_tag.get_text(strip=True) if a_tag else "Titre non spécifié"
-                    
-                    # On utilise urljoin pour être sûr d'avoir le lien complet
-                    # Note: Assure-toi d'avoir importé urljoin: from urllib.parse import urljoin
-                    job_url = urljoin("https://www.novojob.com", a_tag['href']) if a_tag and a_tag.has_attr('href') else url
-
-                    # Entreprise
-                    company_tag = job.select_one("div.contact h6")
-                    company = company_tag.get_text(strip=True) if company_tag else "Entreprise inconnue"
-
-                    # Localisation
-                    location_tag = job.select_one("i.fa-map-marker + span")
-                    location = location_tag.get_text(strip=True) if location_tag else "Côte d’Ivoire"
-
-                    # Date (Algorithme complexe conservé)
-                    date_span = job.select_one("span.spaced-right i.fa-clock-o")
-                    if date_span and date_span.parent:
-                        date_tag = date_span.parent
-                        # On retire l'icône pour ne garder que le texte
-                        for i_tag in date_tag.find_all("i"):
-                            i_tag.extract()
-                        raw_date = date_tag.get_text(strip=True)
-
-                        try:
-                            # Exemple attendu : "23 Juillet"
-                            parts = raw_date.split()
-                            if len(parts) >= 2:
-                                jour = parts[0]
-                                mois = mois_map.get(parts[1].lower(), "01")
-                                annee = str(datetime.today().year)
-                                date_start = f"{jour.zfill(2)}/{mois}/{annee}"
-                            else:
-                                date_start = datetime.today().strftime("%d/%m/%Y")
-                        except Exception:
-                            date_start = datetime.today().strftime("%d/%m/%Y")
-                    else:
-                        date_start = datetime.today().strftime("%d/%m/%Y")
-
-                    # Calcul date fin (+30 jours)
                     try:
-                        date_obj = datetime.strptime(date_start, "%d/%m/%Y")
-                        date_end = (date_obj + timedelta(days=30)).strftime("%d/%m/%Y")
-                    except Exception:
-                        date_end = date_start
+                        # --- Extraction des données ---
+                        a_tag = job.find("a", title=True)
+                        title = a_tag.get_text(strip=True) if a_tag else "Titre non spécifié"
+                        
+                        # Lien complet
+                        job_url = urljoin("https://www.novojob.com", a_tag['href']) if a_tag and a_tag.has_attr('href') else url
 
-# ID unique
-                    opp_id = str(generate_numeric_id(title, date_end))
-                    
-                    items.append(build_opportunity(
-                        opp_id=opp_id,
-                        title=title,
-                        category="Emplois",
-                        source="NovoJob",
-                        date_start=date_start,
-                        date_end=date_end,
-                        url=job_url,
-                        badge_color="blue",
-                        description=f"{title} chez {company}, situé à {location}."
-                    ))
-                # --- Fin du parsing ---
+                        # Entreprise
+                        company_tag = job.select_one("div.contact h6")
+                        company = company_tag.get_text(strip=True) if company_tag else "Entreprise inconnue"
+
+                        # Localisation
+                        location_tag = job.select_one("i.fa-map-marker + span")
+                        location = location_tag.get_text(strip=True) if location_tag else "Côte d’Ivoire"
+
+                        # --- Gestion de la Date ---
+                        date_start = datetime.today().strftime("%d/%m/%Y") # Valeur par défaut
+                        
+                        date_span = job.select_one("span.spaced-right i.fa-clock-o")
+                        if date_span and date_span.parent:
+                            date_tag = date_span.parent
+                            # On retire l'icône
+                            for i_tag in date_tag.find_all("i"):
+                                i_tag.extract()
+                            raw_date = date_tag.get_text(strip=True)
+
+                            try:
+                                parts = raw_date.split()
+                                if len(parts) >= 2:
+                                    jour = parts[0]
+                                    mois = mois_map.get(parts[1].lower(), "01")
+                                    annee = str(datetime.today().year)
+                                    date_start = f"{jour.zfill(2)}/{mois}/{annee}"
+                            except Exception:
+                                pass # On garde la date du jour par défaut en cas d'erreur
+
+                        # Calcul date fin (+30 jours par défaut)
+                        try:
+                            date_obj = datetime.strptime(date_start, "%d/%m/%Y")
+                            date_end = (date_obj + timedelta(days=30)).strftime("%d/%m/%Y")
+                        except Exception:
+                            date_end = date_start
+
+                        # --- Construction de l'objet ---
+                        opp_id = str(generate_numeric_id(title, date_end))
+                        source_name = "NovoJob"
+
+                        # ✅ APPEL IMPORTANT : Notification Nouvelle Source
+                        check_and_notify_new_source(source_name)
+                        
+                        items.append(build_opportunity(
+                            opp_id=opp_id,
+                            title=title,
+                            category="Emplois",
+                            source=source_name,
+                            date_start=date_start,
+                            date_end=date_end,
+                            url=job_url,
+                            badge_color="purple",
+                            description=f"{title} chez {company}, situé à {location}."
+                        ))
+
+                    except Exception as e_job:
+                        print(f"⚠️ Erreur parsing job individuel: {e_job}")
+                        continue
 
             except Exception as e_url:
                 print(f"⚠️ Erreur lors du scraping de l'URL Novojob: {e_url}")
-                continue # On passe à l'URL suivante même si celle-ci plante
+                continue 
 
     except Exception as e_main:
         print(f"❌ Erreur critique Selenium Novojob: {e_main}")
 
     finally:
-        # 4. TRÈS IMPORTANT : On ferme le navigateur pour libérer la mémoire du serveur
+        # 4. TRÈS IMPORTANT : Fermeture propre
         if driver:
             driver.quit()
-            print("✅ Driver Selenium fermé.")
+            print("🚪 Navigateur Selenium fermé.")
 
     return items
+
+
+
+# ---------- SCRAPING SOCIUMJOB (Selenium) ----------
+def scrape_sociumjob():
+    url = "https://sociumjob.com/jobs"
+    items = []
+    driver = None
+
+    try:
+        # 1. On lance le navigateur virtuel
+        driver = get_driver()
+        print(f"🔄 Scraping SociumJob: {url}")
+        driver.get(url)
+        
+        # 2. PAUSE : On attend que React/Next.js charge les offres d'emploi
+        time.sleep(5) 
+        
+        # 3. Récupération du code source
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        
+        # 🎯 NOUVEAU CIBLAGE : On cherche les div qui ont l'attribut "data-jid"
+        jobs_cards = soup.find_all("div", attrs={"data-jid": True})
+        
+        seen_urls = set()
+
+        for job in jobs_cards:
+            try:
+                # --- Extraction de l'URL via le slug ---
+                jid = job.get("data-jid")
+                if not jid:
+                    continue
+                    
+                job_url = f"https://sociumjob.com/jobs/{jid}"
+                
+                # Éviter les doublons
+                if job_url in seen_urls:
+                    continue
+                seen_urls.add(job_url)
+
+                # --- Extraction du Titre ---
+                title_tag = job.find("h3", class_="job-title")
+                title = title_tag.get_text(strip=True) if title_tag else None
+                
+                if not title or len(title) < 3:
+                    continue
+
+                # --- Extraction de la Localisation ---
+                # Dans ton HTML, la ville est dans un <p> avec la classe "truncate"
+                loc_tag = job.select_one("p.truncate")
+                location = loc_tag.get_text(strip=True) if loc_tag else "Côte d'Ivoire"
+
+                # --- Extraction de la Date ---
+                # Dans ton HTML, la date est dans une balise <time>
+                time_tag = job.find("time")
+                if time_tag:
+                    date_start = time_tag.get_text(strip=True) # Ex: 24/08/2024
+                else:
+                    date_start = datetime.today().strftime("%d/%m/%Y")
+
+                # Calcul de la date de fin (approximatif : on ajoute 30 jours à la date_start)
+                try:
+                    date_obj = datetime.strptime(date_start, "%d/%m/%Y")
+                    date_end = (date_obj + timedelta(days=30)).strftime("%d/%m/%Y")
+                except Exception:
+                    date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+                # --- Construction de l'objet ---
+                opp_id = str(generate_numeric_id(title, date_end))
+                source_name = "SociumJob"
+
+                # ✅ APPEL IMPORTANT : Notification Nouvelle Source
+                check_and_notify_new_source(source_name)
+                
+                items.append(build_opportunity(
+                    opp_id=opp_id,
+                    title=title,
+                    category="Emplois",
+                    source=source_name,
+                    date_start=date_start,
+                    date_end=date_end,
+                    url=job_url,
+                    badge_color="teal", 
+                    description=f"{title} - Poste basé à {location}."
+                ))
+
+            except Exception as e_job:
+                print(f"⚠️ Erreur parsing job individuel SociumJob: {e_job}")
+                continue
+
+    except Exception as e_main:
+        print(f"❌ Erreur critique Selenium SociumJob: {e_main}")
+
+    finally:
+        if driver:
+            driver.quit()
+            print("🚪 Navigateur Selenium fermé (SociumJob).")
+
+    return items
+
+
+# ---------- ROUTE DE TEST INDIVIDUEL ----------
+# @app.get("/test-socium")
+# def test_scrape_sociumjob_only():
+#     print("🚀 Lancement du test unitaire pour SociumJob...")
+    
+#     try:
+#         # 1. On lance uniquement notre nouveau scraper
+#         ops = scrape_sociumjob()
+        
+#         # 2. On renvoie les données récupérées pour inspection visuelle
+#         return {
+#             "message": "Test SociumJob terminé",
+#             "total_trouve": len(ops),
+#             "donnees": ops # Tu verras exactement la structure des offres ici
+#         }
+        
+#     except Exception as e:
+#         print(f"❌ Erreur lors du test : {e}")
+#         return {
+#             "message": "Erreur lors du scraping",
+#             "erreur": str(e)
+#         }
+
+
+
+
+
+
+# ---------- ROUTE DE TEST INDIVIDUEL ENA ----------
+# @app.get("/test-ena")
+# def test_scrape_ena_only():
+#     print("🚀 Lancement du test unitaire pour l'ENA 2026...")
+    
+#     try:
+#         # 1. On lance uniquement notre scraper nettoyé
+#         ops = scrape_ena_directs()
+        
+#         # 2. On renvoie les données récupérées pour inspection dans le navigateur
+#         return {
+#             "message": "Test ENA terminé",
+#             "total_trouve": len(ops),
+#             "donnees": ops # Tu pourras vérifier les dates 2026 et les liens ici
+#         }
+        
+#     except Exception as e:
+#         print(f"❌ Erreur lors du test ENA : {e}")
+#         return {
+#             "message": "Erreur lors du scraping de l'ENA",
+#             "erreur": str(e)
+#         }
+
+
+
 
 
 
@@ -833,6 +1834,13 @@ def scrape_daad_scholarship():
 
         # Création d'un dictionnaire similaire à build_opportunity
         opp_id = str(generate_numeric_id(title, date_end))
+
+
+        source = "DAAD"
+
+        # ✅ AJOUT ICI
+        check_and_notify_new_source(source)
+
         items.append(build_opportunity(
             opp_id=opp_id,
             title= title,
@@ -932,6 +1940,11 @@ def scrape_educarriere(max_pages: int = 1):
             # ID unique
             opp_id = str(generate_numeric_id(title, date_end))
 
+            source = "EMPLOI EDUCARRIERE"
+
+            # ✅ AJOUT ICI
+            check_and_notify_new_source(source)
+
             items.append(build_opportunity(
                 opp_id=opp_id,
                 title=title,
@@ -950,8 +1963,165 @@ def scrape_educarriere(max_pages: int = 1):
 
 
 
+
+def scrape_agence_emploi_jeunes(max_pages: int = 1):
+    base_url = "https://agenceemploijeunes.ci/site/offres-emplois"
+    items = []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+
+    def normalize_category(cat: str) -> str:
+        cat = cat.lower()
+        if "emploi" in cat:
+            return "Emplois"
+        elif "stage" in cat:
+            return "Stages"
+        elif "formation" in cat:
+            return "Formations"
+        else:
+            # S'il y a un autre type (ex: CDD, CDI qui n'a pas le mot emploi), on force "Emplois" par défaut
+            return "Emplois"
+
+    for page in range(1, max_pages + 1):
+        # Sur l'AEJ, la pagination utilise généralement le paramètre ?page=X
+        url = f"{base_url}?page={page}" if page > 1 else base_url
+
+        try:
+            resp = requests.get(url, headers=headers, timeout=10, verify=False)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            print(f"[ERREUR] Impossible de se connecter à {url} : {e}")
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Sélection de chaque bloc d'offre (d'après ton code HTML : <li> contenant div.post-bx)
+        offers = soup.select("ul.post-job-bx > li")
+        
+        for offer in offers:
+            post_bx = offer.select_one("div.post-bx")
+            if not post_bx:
+                continue
+
+            # 1. URL et Titre
+            a_tag = post_bx.select_one("div.job-post-info h4 a")
+            title = a_tag.get_text(strip=True) if a_tag else "Titre non spécifié"
+            job_url = a_tag["href"] if a_tag and a_tag.has_attr("href") else url
+
+            # 2. Catégorie (Ex: STAGE DE VALIDATION, COMMERCIAL...)
+            category_tag = post_bx.select_one("div.job-time span.pull-right")
+            raw_category = category_tag.get_text(strip=True) if category_tag else "Emplois"
+            category = normalize_category(raw_category)
+
+            # 3. Dates et Lieu
+            metas = post_bx.select("div.job-post-info ul div.row li")
+            date_start, date_end, location = None, None, "Côte d'Ivoire"
+            
+            for li in metas:
+                text = li.get_text(strip=True)
+                if "Publié le:" in text:
+                    # Ex: "Publié le: 01 04 2026" -> on extrait "01 04 2026"
+                    raw = text.split(":")[-1].strip()
+                    try:
+                        date_start = datetime.strptime(raw, "%d %m %Y").strftime("%d/%m/%Y")
+                    except Exception:
+                        date_start = datetime.today().strftime("%d/%m/%Y")
+                
+                elif "Date limite:" in text:
+                    # Ex: "Date limite:08 04 2026"
+                    raw = text.split(":")[-1].strip()
+                    try:
+                        date_end = datetime.strptime(raw, "%d %m %Y").strftime("%d/%m/%Y")
+                    except Exception:
+                        date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+                
+                elif li.find("i", class_="fa-map-marker"):
+                    location = text.replace("fa-map-marker", "").strip()
+
+            # Fallback si dates manquantes
+            if not date_start:
+                date_start = datetime.today().strftime("%d/%m/%Y")
+            if not date_end:
+                date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+            # 4. Description courte et Diplôme
+            p_tag = post_bx.select_one("p")
+            desc_text = p_tag.get_text(separator=" ", strip=True) if p_tag else ""
+            
+            diploma_tag = post_bx.select_one("div.salary-bx")
+            diploma = diploma_tag.get_text(separator=" ", strip=True) if diploma_tag else ""
+
+            full_description = f"{desc_text}\nLieu: {location}\n{diploma}"
+
+            # 5. ID unique et Source
+            opp_id = str(generate_numeric_id(title, date_end)) # Ta fonction existante
+            source = "AGENCE EMPLOI JEUNES"
+
+            # ✅ Notification système
+            check_and_notify_new_source(source) # Ta fonction existante
+
+            # Construction de l'objet
+            items.append(build_opportunity(
+                opp_id=opp_id,
+                title=title,
+                category=category,   # Catégorie convertie (Stages, Emplois...)
+                source="Agence Emploi Jeunes",
+                date_start=date_start,
+                date_end=date_end,
+                url=job_url,
+                badge_color="green", # AEJ utilise beaucoup le vert
+                description=full_description
+            ))
+
+    return items
+
+
+
+# @app.get("/scrape/aej")
+# def trigger_aej_scrape():
+#     print("🚀 Lancement manuel du scraper Agence Emploi Jeunes...")
+#     try:
+#         # Appel de la fonction de scraping (tu peux ajuster max_pages ici si tu veux scrapper plus)
+#         data = scrape_agence_emploi_jeunes(max_pages=1)
+        
+#         count = 0
+#         # Sauvegarde en base de données (Firestore)
+#         for item in data:
+#             # Assure-toi que la clé correspond bien à ce que retourne ta fonction build_opportunity ("id" ou "opp_id")
+#             item_id = item.get("id") or item.get("opp_id") 
+#             doc_ref = db.collection("opportunities").document(item_id)
+            
+#             # On vérifie si l'ID existe déjà pour ne pas créer de doublons
+#             if not doc_ref.get().exists:
+#                 doc_ref.set(item)
+#                 count += 1
+                
+#         print(f"✅ Scraping AEJ terminé : {count} nouvelles opportunités ajoutées sur {len(data)} trouvées.")
+        
+#         return {
+#             "status": "success", 
+#             "added": count, 
+#             "total_found": len(data),
+#             "data": data
+#         }
+        
+#     except Exception as e:
+#         print(f"❌ Erreur lors du déclenchement du scraping AEJ : {e}")
+#         return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+
 # désactiver les warnings SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
 
 def scrape_educarriere_formations(max_pages: int = 1):
     base_url = "https://formation.educarriere.ci/"
@@ -1008,6 +2178,11 @@ def scrape_educarriere_formations(max_pages: int = 1):
 
             # ID unique
             opp_id = str(generate_numeric_id(title, date_end))
+
+            source = "FORMATION EDUCARRIERE"
+
+            # ✅ AJOUT ICI
+            check_and_notify_new_source(source)
 
             items.append(build_opportunity(
                 opp_id=opp_id,
@@ -1102,6 +2277,12 @@ def scrape_kaggle_competitions(max_items: int = 30):
 
                 # ID unique
                 opp_id = str(generate_numeric_id(title, date_end_fmt))
+
+
+                source = "KAGGLE"
+
+                # ✅ AJOUT ICI
+                check_and_notify_new_source(source)
 
                 items.append(build_opportunity(
                     opp_id=opp_id,
@@ -1264,6 +2445,12 @@ def scrape_devpost_hackathons():
             # Génération d'un ID unique
             opp_id = str(generate_numeric_id(title, location))
 
+
+            source = "DEVPOST"
+
+            # ✅ AJOUT ICI
+            check_and_notify_new_source(source)
+
             items.append({
                 "id": opp_id,
                 "source": "Devpost",
@@ -1291,10 +2478,1137 @@ def scrape_devpost_hackathons():
 
 
 
+# ---------- SCRAPING OPTION CARRIERE (Version Validée) ----------
+def scrape_option_carriere():
+    # URL directe avec les paramètres
+    url = "https://www.optioncarriere.ci/recherche/emplois?l=C%C3%B4te+d%27Ivoire&sort=date"
+    items = []
+    driver = None
+
+    try:
+        print("🔄 Scraping Option Carrière via Selenium...")
+        
+        # 1. Utiliser ton driver configuré (celui qui marche pour Novojob)
+        driver = get_driver() 
+        driver.get(url)
+
+        # 2. Pause pour laisser le site charger et passer les vérifications basiques
+        time.sleep(5) 
+
+        # 3. On récupère le HTML généré par le navigateur
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+
+        # 4. On reprend ta logique de parsing qui était bonne
+        jobs = soup.select("article.job") 
+        print(f"📊 Selenium a trouvé {len(jobs)} offres.")
+
+        for job in jobs:
+            try:
+                # Titre et Lien
+                title_tag = job.select_one("header h3 a") # ou h2 selon le test
+                if not title_tag: 
+                    # Fallback au cas où ils changent h3 en h2
+                    title_tag = job.select_one("header h2 a")
+                
+                if not title_tag: continue
+
+                title = title_tag.get_text(strip=True)
+                link = "https://www.optioncarriere.ci" + title_tag['href']
+
+                # Entreprise
+                company_tag = job.select_one("p.company")
+                company = company_tag.get_text(strip=True) if company_tag else "Entreprise confidentielle"
+
+                # Localisation
+                loc_tag = job.select_one("ul.location li")
+                location = loc_tag.get_text(strip=True) if loc_tag else "Abidjan"
+
+                # Description
+                desc_tag = job.select_one("div.desc")
+                description = desc_tag.get_text(strip=True) if desc_tag else f"Poste chez {company}"
+
+                # Date
+                date_tag = job.select_one("footer ul.tags span.badge")
+                raw_date = date_tag.get_text(strip=True).lower() if date_tag else ""
+                
+                date_start_obj = datetime.today()
+                if "hier" in raw_date:
+                    date_start_obj = date_start_obj - timedelta(days=1)
+                elif "jour" in raw_date:
+                    try:
+                        days_ago = int(re.search(r'\d+', raw_date).group())
+                        date_start_obj = date_start_obj - timedelta(days=days_ago)
+                    except: pass
+                
+                date_start = date_start_obj.strftime("%d/%m/%Y")
+                date_end = (date_start_obj + timedelta(days=45)).strftime("%d/%m/%Y")
+
+                opp_id = str(generate_numeric_id(title, company))
+
+
+                source = "OPTION CARRIERE"
+
+                # ✅ AJOUT ICI
+                check_and_notify_new_source(source)
+
+                items.append(build_opportunity(
+                    opp_id=opp_id,
+                    title=title,
+                    category="Emplois",
+                    source="Option Carrière",
+                    date_start=date_start,
+                    date_end=date_end,
+                    url=link,
+                    badge_color="orange",
+                    description=f"{description}\n\n📍 {location}"
+                ))
+
+            except Exception as e_job:
+                print(f"⚠️ Erreur parsing job: {e_job}")
+                continue
+
+    except Exception as e:
+        print(f"❌ Erreur Selenium Option Carrière: {e}")
+
+    finally:
+        # Toujours fermer le driver !
+        if driver:
+            driver.quit()
+            print("✅ Driver Option Carrière fermé.")
+
+    return items
+
+
+
+
+
+
+
+# ---------- SCRAPING PROJOB IVOIRE (Version Blindée) ----------
+def scrape_projob_ivoire():
+    base_url = "https://projobivoire.com/jobs/"
+    items = []
+    driver = None
+    
+    # Mapping des mois
+    mois_map = {
+        "janvier": "01", "février": "02", "mars": "03", "avril": "04",
+        "mai": "05", "juin": "06", "juillet": "07", "août": "08",
+        "septembre": "09", "octobre": "10", "novembre": "11", "décembre": "12"
+    }
+
+    def convert_date_fr(date_str):
+        try:
+            parts = date_str.lower().replace("-", "").strip().split()
+            if len(parts) >= 3:
+                day = parts[0].zfill(2)
+                month = mois_map.get(parts[1], "01")
+                year = parts[2]
+                return f"{day}/{month}/{year}"
+            return datetime.today().strftime("%d/%m/%Y")
+        except:
+            return datetime.today().strftime("%d/%m/%Y")
+
+    try:
+        print("🔄 Scraping ProJob Ivoire via Selenium (Mode Scroll)...")
+        
+        driver = get_driver()
+        driver.get(base_url)
+
+        # 1. ATTENTE INITIALE
+        time.sleep(5)
+
+        # 2. SCROLL POUR FORCER LE CHARGEMENT (Lazy Loading)
+        # On scrolle un peu vers le bas pour activer les scripts d'affichage
+        driver.execute_script("window.scrollTo(0, 800);")
+        time.sleep(3) # On attend que ça charge
+        driver.execute_script("window.scrollTo(0, 1600);")
+        time.sleep(3)
+
+        # 3. DEBUG : On regarde l'URL actuelle (voir si on a été redirigé sur une pub)
+        print(f"🔗 URL actuelle : {driver.current_url}")
+
+        # 4. DEBUG : SAUVEGARDE DU HTML
+        # C'est crucial : ouvre ce fichier pour voir si tu vois les offres ou une pub !
+        with open("projob_debug.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        print("📁 HTML sauvegardé sous 'projob_debug.html'.")
+
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+
+        # 5. SÉLECTEUR ÉLARGI
+        # Au lieu de 'article.noo_job', on cherche juste la classe '.noo_job'
+        # car parfois ils changent la balise HTML.
+        articles = soup.select(".noo_job")
+        
+        print(f"📊 ProJob (Selenium): {len(articles)} offres trouvées.")
+
+        for article in articles:
+            try:
+                # Titre (On cherche large: h2 ou h3)
+                title_tag = article.select_one("h2 a") or article.select_one("h3 a")
+                if not title_tag: 
+                    # Parfois le lien est direct sur le titre sans h2
+                    if article.name == 'a': 
+                        title_tag = article
+                    else:
+                        continue
+                
+                title = title_tag.get_text(strip=True)
+                link = title_tag['href']
+
+                # Entreprise
+                company_tag = article.select_one(".job-company")
+                company = company_tag.get_text(strip=True) if company_tag else "Entreprise confidentielle"
+
+                # Type
+                type_tag = article.select_one(".job-type")
+                job_type = type_tag.get_text(strip=True) if type_tag else "Emploi"
+
+                # Localisation
+                loc_tag = article.select_one(".job-location")
+                location = loc_tag.get_text(strip=True) if loc_tag else "Abidjan"
+
+                # Catégorie
+                cat_tag = article.select_one(".job-category")
+                category_raw = cat_tag.get_text(strip=True) if cat_tag else "Divers"
+                category = "Stages" if "stage" in job_type.lower() else "Emplois"
+
+                # Dates
+                posted_tag = article.select_one(".job-date__posted")
+                raw_start = posted_tag.get_text(strip=True) if posted_tag else ""
+                date_start = convert_date_fr(raw_start)
+
+                closing_tag = article.select_one(".job-date__closing")
+                if closing_tag:
+                    raw_end = closing_tag.get_text(strip=True)
+                    date_end = convert_date_fr(raw_end)
+                else:
+                    start_dt = datetime.strptime(date_start, "%d/%m/%Y")
+                    date_end = (start_dt + timedelta(days=30)).strftime("%d/%m/%Y")
+
+                # Image
+                img_tag = article.select_one("img")
+                image_url = img_tag['src'] if img_tag else None
+
+                opp_id = str(generate_numeric_id(title, company))
+
+
+                source = "PROJOBIVOIRE"
+
+                # ✅ AJOUT ICI
+                check_and_notify_new_source(source)
+
+                items.append(build_opportunity(
+                    opp_id=opp_id,
+                    title=title,
+                    category=category,
+                    source="ProJob Ivoire",
+                    date_start=date_start,
+                    date_end=date_end,
+                    url=link,
+                    badge_color="green",
+                    description=f"{job_type} - {category_raw}\nChez {company} à {location}",
+                    image_url=image_url
+                ))
+
+            except Exception as e_art:
+                # On met en commentaire pour ne pas polluer si c'est juste un element vide
+                # print(f"⚠️ Erreur parsing article: {e_art}")
+                continue
+
+    except Exception as e:
+        print(f"❌ Erreur Selenium ProJob: {e}")
+
+    finally:
+        if driver:
+            driver.quit()
+            print("✅ Driver ProJob fermé.")
+
+    return items
+
+
+
+
+# --- AJOUTE CECI POUR ÉVITER L'ERREUR ---
+def send_notification_to_topic(topic, title, body):
+    # Pour l'instant, on affiche juste un message au lieu d'envoyer la notif réelle
+    print(f"🔔 [SIMULATION NOTIF] Vers {topic} : {title} - {body}")
+
+
+
+
+
+def analyze_facebook_post_with_gemini(text, source_name):
+    # ⚠️ TA CLÉ API
+    GOOGLE_API_KEY = "AIzaSyCzA4YhIjSkKqmPQdfnCNwbKNFjaNiHAV0"
+    genai.configure(api_key=GOOGLE_API_KEY)
+
+    prompt = f"""
+    Analyse ce post Facebook de "{source_name}".
+    Texte: "{text}"
+
+    Tâche :
+    1. Est-ce une offre concrète (emploi, stage, concours, formation, bourse, hackathon, financement) ?
+    2. Si OUI, extrais les détails en JSON.
+    3. Si NON, renvoie "is_valid": false.
+
+    RÈGLE STRICTE : Renvoie UNIQUEMENT le JSON brut. Pas de Markdown (```json), pas de texte avant ni après.
+
+    Format JSON :
+    {{
+        "is_valid": true,
+        "title": "Titre",
+        "category": "Stage",
+        "date_end": "JJ/MM/AAAA" (ou null),
+        "summary": "Résumé"
+    }}
+    """
+
+    try:
+        # On utilise le modèle 2.0 Flash qui est rapide et gratuit
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(prompt)
+        
+        if not response.parts:
+            return {"is_valid": False}
+        
+        raw_text = response.text
+        
+        # --- NETTOYAGE CHIRURGICAL ---
+        # 1. On cherche le premier '{' et le dernier '}'
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        
+        if match:
+            json_str = match.group() # On garde juste la partie JSON
+            return json.loads(json_str)
+        else:
+            # Si on ne trouve pas de JSON, c'est que la réponse n'était pas valide
+            return {"is_valid": False}
+
+    except Exception as e:
+        # Pour le debug, on affiche ce qui a planté si besoin
+        print(f"⚠️ Erreur parsing Gemini : {e}")
+        return {"is_valid": False}
+
+
+
+# --- FONCTION D'ANALYSE GEMINI (Version HTTP Stable) ---
+# def analyze_facebook_post_with_gemini(post_text, source_name):
+#     """
+#     Utilise l'URL définie plus haut (GEMINI_API_URL) pour interroger le modèle 2.0
+#     via une requête HTTP standard (évite les erreurs de librairie).
+#     """
+    
+#     # 1. Construction du Prompt
+#     prompt = f"""
+#     Analyse le texte suivant provenant d'un post Facebook de la page '{source_name}'.
+    
+#     Texte du post : 
+#     "{post_text[:1500]}"
+
+#     Tâche :
+#     1. Détermine si c'est une RÉELLE opportunité professionnelle (Offre d'emploi, Stage, Formation, Concours, Bourse, Hackathon).
+#     2. Si c'est une publicité, des vœux, de la politique ou une info sans candidature, REJETTE-LE.
+#     3. Si c'est valide, extrais les infos au format JSON strict.
+
+#     Format de réponse attendu (JSON uniquement) :
+#     {{
+#         "is_valid": true,
+#         "title": "Titre court",
+#         "category": "Emploi" | "Stage" | "Formation" | "Concours" | "Bourse",
+#         "date_end": "JJ/MM/AAAA" (ou null),
+#         "summary": "Résumé en une phrase"
+#     }}
+
+#     Si invalide : {{ "is_valid": false }}
+#     """
+
+#     # 2. Préparation de la requête
+#     headers = { "Content-Type": "application/json" }
+#     data = { "contents": [{ "parts": [{ "text": prompt }] }] }
+
+#     try:
+#         # On utilise ta variable GEMINI_API_URL définie plus haut
+#         # Timeout de 15 secondes pour éviter que ça bloque indéfiniment
+#         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
+#         response.raise_for_status() # Lève une erreur si code 400/500
+        
+#         result = response.json()
+        
+#         # Vérification si Gemini a renvoyé quelque chose
+#         if "candidates" not in result or not result["candidates"]:
+#             return {"is_valid": False}
+
+#         text_resp = result["candidates"][0]["content"]["parts"][0]["text"]
+        
+#         # 3. Nettoyage "Chirurgical" du JSON (Extraction par Regex)
+#         match = re.search(r'\{.*\}', text_resp, re.DOTALL)
+#         if match:
+#             return json.loads(match.group())
+#         else:
+#             return {"is_valid": False}
+
+#     except Exception as e:
+#         print(f"⚠️ Erreur analyse Gemini pour Facebook: {e}")
+#         return {"is_valid": False}
+
+
+
+
+# --- FONCTION D'ANALYSE GEMINI (Réseaux Sociaux : Facebook & LinkedIn) ---
+def analyze_social_post_with_gemini(text_content, source_name, platform="Réseau/Plateforme"):
+    """
+    Analyse un texte brut (Post Facebook ou Offre LinkedIn) pour en extraire 
+    les infos qualifiées pour le Dashboard B2B.
+    """
+    
+    # 1. Construction du Prompt "Hybride" + Data-Driven
+    prompt = f"""
+    Tu es un expert en recrutement. Analyse le texte suivant provenant de '{source_name}' sur la plateforme '{platform}'.
+    Il peut s'agir d'un post informel ou d'une offre structurée.
+    
+    Texte à analyser : 
+    "{text_content[:1500]}"
+
+    Tâche :
+    1. Détermine si c'est une RÉELLE opportunité (Offre d'emploi, Stage, Formation, Concours, Hackathon).
+    2. Filtrage strict : Si c'est une publicité, des vœux, de la politique, un témoignage ou une info sans lien/moyen de postuler, REJETTE-LE.
+    3. Si c'est valide, extrais les informations clés de manière concise.
+
+    Format de réponse attendu (JSON STRICT uniquement, avec les clés exactes ci-dessous) :
+    {{
+        "is_valid": true,
+        "title": "Titre court et clair du poste ou du concours",
+        "category": "Emploi" | "Stage" | "Formation" | "Concours" | "Bourse",
+        "date_end": "JJ/MM/AAAA" (ou null si non précisé),
+        "summary": "Résumé en une phrase de l'opportunité.",
+        "company_name": "Nom de l'entreprise. Si introuvable, mets 'Non spécifié'",
+        "exact_location": "Ville précise (ex: Abidjan, Remote). Si introuvable, mets 'Non spécifié'",
+        "required_skills": ["Compétence 1", "Compétence 2", "Compétence 3"] 
+    }}
+
+    Si l'opportunité est invalide, expirée ou qu'il s'agit d'un simple post de communication : 
+    {{ "is_valid": false }}
+    """
+
+    # 2. Préparation de la requête
+    headers = { "Content-Type": "application/json" }
+    data = { "contents": [{ "parts": [{ "text": prompt }] }] }
+
+    try:
+        response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
+        response.raise_for_status() 
+        
+        result = response.json()
+        
+        # Vérification si Gemini a renvoyé quelque chose
+        if "candidates" not in result or not result["candidates"]:
+            return {"is_valid": False}
+
+        text_resp = result["candidates"][0]["content"]["parts"][0]["text"]
+        
+        # 3. Nettoyage "Chirurgical" du JSON
+        match = re.search(r'\{.*\}', text_resp, re.DOTALL)
+        if match:
+            # On force le parsing JSON
+            parsed_data = json.loads(match.group())
+            
+            # Sécurité : Si l'IA a oublié les nouveaux champs, on les ajoute par défaut
+            if parsed_data.get("is_valid") == True:
+                parsed_data.setdefault("company_name", "Non spécifié")
+                parsed_data.setdefault("exact_location", "Non spécifié")
+                parsed_data.setdefault("required_skills", [])
+                
+            return parsed_data
+        else:
+            return {"is_valid": False}
+
+    except Exception as e:
+        print(f"⚠️ Erreur analyse Gemini pour {platform} ({source_name}): {e}")
+        return {"is_valid": False}
+
+
+# --- 2. FONCTION DE SCRAPING FACEBOOK (inchangée, juste nettoyée) ---
+def scrape_facebook_pages():
+    # ⚠️ Ton Token Apify (Garde le tien)
+    api_token = os.getenv("APIFY_API_TOKEN")
+    
+    start_urls = [
+        {"url": "https://www.facebook.com/AgenceEmploiJeunes"},     
+        {"url": "https://www.facebook.com/RMOJobCenter"},
+        {"url": "https://www.facebook.com/EmpowerTalentsAndCareers"},
+        {"url": "https://www.facebook.com/educarriere.ci"},
+        {"url": "https://www.facebook.com/defense.ci"},
+        {"url": "https://www.facebook.com/fonctionpublique.ci"},
+    ]
+
+    print("🔵 Démarrage du scraping Facebook via APIFY...")
+    items = []
+    
+    try:
+        client = ApifyClient(api_token)
+        run_input = { "startUrls": start_urls, "resultsLimit": 3, "viewPortWidth": 1200 }
+
+        # Lancement (peut prendre quelques secondes)
+        run = client.actor("apify/facebook-posts-scraper").call(run_input=run_input)
+        
+        dataset = client.dataset(run["defaultDatasetId"])
+        items_list = list(dataset.iterate_items())
+        print(f"   📦 {len(items_list)} posts FB récupérés.")
+
+        for item in items_list:
+            text_content = item.get("text") or item.get("postText") or item.get("content") or ""
+            
+            if not text_content or len(text_content) < 30: continue
+
+            # Filtrage rapide avant d'appeler l'IA (économie de temps)
+            keywords = ["recrutement", "concours", "appel", "candidature", "hackathon", "formation", "stage", "bourse", "avis"]
+            if not any(k in text_content.lower() for k in keywords): continue 
+
+            author_name = item.get("user", {}).get("name") or item.get("pageName", "Page Facebook")
+            
+            # Analyse IA
+            analysis = analyze_social_post_with_gemini(text_content, author_name, "Facebook")
+
+            if analysis.get("is_valid"):
+                # ... Logique de création de l'opportunité (ton code existant) ...
+                opp_id = str(generate_numeric_id(analysis["title"], analysis.get("date_end", "2025-12-31")))
+                source_label = f"Facebook - {author_name}"
+                
+                # Image
+                image_url = item.get("imageUrl")
+                if not image_url and item.get("images"): image_url = item["images"][0]
+                if not image_url: image_url = "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg"
+
+                items.append(build_opportunity(
+                    opp_id=opp_id,
+                    title=analysis["title"],
+                    category=analysis["category"],
+                    source=source_label,
+                    date_start=datetime.now().strftime("%d/%m/%Y"),
+                    date_end=analysis.get("date_end"),
+                    url=item.get("url", item.get("postUrl", "")),
+                    badge_color="blue",
+                    description=analysis.get("summary", text_content[:100]),
+                    isFeatured=True,
+                    image_url=image_url
+                ))
+                print(f"      🎉 FB OCCASION: {analysis['title']}")
+    
+    except Exception as e:
+        print(f"❌ Erreur Scraper Facebook : {e}")
+    
+    return items
+
+
+
+
+
+# --- 3. FONCTION DE SCRAPING LINKEDIN JOBS ---
+def scrape_linkedin_jobs():
+    # ⚠️ Ton Token Apify (Garde le tien)
+    api_token = os.getenv("APIFY_API_TOKEN")
+    
+    # 💡 L'ID de l'Actor Apify pour LinkedIn Jobs.
+    ACTOR_ID = "curious_coder/linkedin-jobs-scraper" 
+
+    print("🔵 Démarrage du scraping LinkedIn Jobs via APIFY...")
+    items = []
+    
+    try:
+        client = ApifyClient(api_token)
+        
+        # Le format exact exigé par curious_coder
+        run_input = {
+            "urls": [
+                "https://www.linkedin.com/jobs/search/?keywords=recrutement%20OR%20concours%20OR%20stage&location=Cote%20d%27Ivoire"
+            ],
+            "count": 20,          
+            "scrapeCompany": True 
+        }
+
+        # Lancement de l'Actor
+        run = client.actor(ACTOR_ID).call(run_input=run_input)
+        
+        dataset = client.dataset(run["defaultDatasetId"])
+        items_list = list(dataset.iterate_items())
+        print(f"   📦 {len(items_list)} jobs LinkedIn récupérés.")
+
+        for item in items_list:
+            # 1. Récupération ultra-sécurisée des données brutes
+            job_title = str(item.get("title") or "Poste sans titre")
+            company = str(item.get("companyName") or "Entreprise Inconnue")
+            location = str(item.get("location") or "Côte d'Ivoire")
+            job_url = str(item.get("link") or "")
+            
+            raw_desc = item.get("descriptionText") or item.get("descriptionHtml") or ""
+            description = str(raw_desc)
+            
+            if len(description) < 30: 
+                continue
+
+            # (J'ai retiré le filtre rapide par mots-clés, il est inutile ici : 
+            # sur LinkedIn Jobs, ce sont déjà 100% des offres d'emploi)
+
+            # 2. Analyse IA
+            prompt_text = f"Titre: {job_title}\nEntreprise: {company}\nLieu: {location}\nDescription: {description}"
+            analysis = analyze_social_post_with_gemini(prompt_text, company, "LinkedIn")
+        
+            if analysis and analysis.get("is_valid"):
+                # 3. Construction de l'ID unique
+                opp_id = str(generate_numeric_id(f"LI_{job_title}_{company}", "2026"))
+                source_label = f"LinkedIn - {company}"
+                
+                # 4. Récupération du logo
+                image_url = item.get("companyLogo")
+                if not image_url: 
+                    image_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/LinkedIn_logo_initials.png"
+
+                # 5. Création de l'opportunité (🟢 NOUVEAU : Sécurisation absolue des retours IA avec "or")
+                items.append(build_opportunity(
+                    opp_id=opp_id,
+                    title=analysis.get("title") or f"{job_title} chez {company}",
+                    category=analysis.get("category") or "Emplois / Stages",
+                    source=source_label,
+                    date_start=datetime.now().strftime("%d/%m/%Y"),
+                    date_end=analysis.get("date_end") or "À déterminer",
+                    url=job_url,
+                    badge_color="blue", 
+                    description=analysis.get("summary") or (description[:120] + "..."),
+                    image_url=image_url
+                ))
+                print(f"      🎉 LI OCCASION: {job_title} chez {company}")
+    
+    except Exception as e:
+        print(f"❌ Erreur Scraper LinkedIn : {e}")
+        traceback.print_exc() # 🟢 NOUVEAU : Va imprimer le chemin exact de l'erreur dans la console
+    
+    return items
+
+
+@app.get("/scrape/linkedin")
+def trigger_linkedin_scrape():
+    print("🚀 Lancement manuel du scraper LinkedIn...")
+    try:
+        # Appel de la fonction de scraping LinkedIn
+        data = scrape_linkedin_jobs()
+        
+        count = 0
+        # Sauvegarde en base de données (Firestore)
+        for item in data:
+            doc_ref = db.collection("opportunities").document(item["id"])
+            
+            # On vérifie si l'ID existe déjà pour ne pas créer de doublons
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        print(f"✅ Scraping LinkedIn terminé : {count} nouvelles opportunités ajoutées sur {len(data)} trouvées.")
+        
+        return {
+            "status": "success", 
+            "added": count, 
+            "total_found": len(data),
+            "data": data
+        }
+        
+    except Exception as e:
+        print(f"❌ Erreur lors du déclenchement du scraping LinkedIn : {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+
+# @app.get("/scrape/facebook")
+# def trigger_facebook_scrape():
+#     try:
+#         data = scrape_facebook_pages()
+#         # Sauvegarde en base de données
+#         count = 0
+#         for item in data:
+#             doc_ref = db.collection("opportunities").document(item["id"])
+#             if not doc_ref.get().exists:
+#                 doc_ref.set(item)
+#                 count += 1
+#         return {"status": "success", "added": count, "data": data}
+#     except Exception as e:
+#         return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+
+# @app.get("/scrape/cafop")
+# def trigger_cafop_scrape():
+#     try:
+#         # 1. On lance le scraping spécifique au CAFOP
+#         data = scrape_cafop()
+        
+#         # 2. Sauvegarde en base de données (Firebase Firestore)
+#         count = 0
+#         for item in data:
+#             # On utilise l'ID unique généré dans scrape_cafop (ex: CAFOP_2026)
+#             doc_ref = db.collection("opportunities").document(item["id"])
+            
+#             # Vérification anti-doublon : on n'écrit que si ça n'existe pas déjà
+#             if not doc_ref.get().exists:
+#                 doc_ref.set(item)
+#                 count += 1
+        
+#         # 3. Retour du résultat à l'API
+#         return {
+#             "status": "success", 
+#             "source": "CAFOP", 
+#             "added": count, 
+#             "total_found": len(data),
+#             "data": data
+#         }
+
+#     except Exception as e:
+#         # Gestion d'erreur globale
+#         print(f"Erreur endpoint CAFOP : {e}")
+#         return {"status": "error", "message": str(e)}
+
+
+
+
+# ---------- SCRAPING ENS (ABLANIAN) ----------
+def scrape_ens():
+    # 💡 AJOUTE ICI TOUTES LES URLS DES CATÉGORIES ENS QUE TU VEUX SCRAPER
+    urls_ens = [
+        "https://ablanian.ci/concours_admin/view.php?slug=ens1",     # Exemple : Éducateurs
+        "https://ablanian.ci/concours_admin/view.php?slug=ensplpc",   # Exemple : Prof de Lycée Physique-Chimie
+        "https://ablanian.ci/concours_admin/view.php?slug=ensplsvt&src=footer",
+        "https://ablanian.ci/concours_admin/view.php?slug=enspcsvt&src=footer",
+        "https://ablanian.ci/concours_admin/view.php?slug=ensplpc&src=footer"
+        # Ajoute les autres spécialités/slugs ici au besoin...
+    ]
+    
+    items = []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://google.com"
+    }
+
+    for url in urls_ens:
+        try:
+            print(f"🔄 Connexion à {url}...")
+            resp = requests.get(url, headers=headers, timeout=20, verify=False)
+            
+            if resp.status_code != 200:
+                print(f"⚠️ Erreur HTTP sur {url} : {resp.status_code}")
+                continue # 💡 On passe à l'URL suivante au lieu de planter tout le script
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # 1. TITRE
+            title_tag = soup.find("h1")
+            title = title_tag.get_text(strip=True) if title_tag else "Concours ENS 2026"
+
+            # 2. DATES (Regex ultra-blindée pour parer à toute éventualité HTML)
+            page_text = soup.get_text(separator=" ", strip=True)
+            date_start = "À venir"
+            date_end = "À venir"
+            status_description = "Lancement prochainement"
+            badge_color = "gray"
+
+            start_match = re.search(r"D[eé]but.{0,15}?(\d{2}[/-]\d{2}[/-]\d{4})", page_text, re.IGNORECASE)
+            end_match = re.search(r"(?:Fin|Cl[ôo]ture).{0,15}?(\d{2}[/-]\d{2}[/-]\d{4})", page_text, re.IGNORECASE)
+            
+            if start_match and end_match:
+                date_start = start_match.group(1).replace('-', '/')
+                date_end = end_match.group(1).replace('-', '/')
+                status_description = f"Inscriptions du {date_start} au {date_end}"
+                badge_color = "green"
+            elif start_match:
+                date_start = start_match.group(1).replace('-', '/')
+                status_description = f"Inscriptions ouvertes depuis le {date_start}"
+                badge_color = "green"
+            else:
+                if "En cours" in page_text:
+                    status_description = "Actuellement en cours (Dates à confirmer)"
+                    badge_color = "orange"
+                else:
+                    status_description = "En attente de lancement officiel"
+
+            # 3. DESCRIPTION DYNAMIQUE
+            description = ""
+            meta_desc = soup.find("meta", attrs={"name": "description"})
+            if meta_desc and meta_desc.get("content"):
+                description = meta_desc["content"].strip()
+            
+            if not description or len(description) < 20:
+                categorie_match = re.search(r"Catégorie du concours\s*[:\.]?\s*(.*?)(?:Lancement|MAJ|👁|$)", page_text, re.IGNORECASE)
+                condition_match = re.search(r"Condition[s]?\s*[:\.]?\s*(.*?)(?:\.|N\.B|Pour le diplôme|Date|$)", page_text, re.IGNORECASE)
+                
+                desc_parts = []
+                if categorie_match:
+                    desc_parts.append(f"Catégorie: {categorie_match.group(1).strip()}")
+                if condition_match:
+                    desc_parts.append(f"Conditions: {condition_match.group(1).strip()}")
+                
+                if desc_parts:
+                    description = f"{title}. " + " | ".join(desc_parts) + f". {status_description}."
+                else:
+                    description = f"{title}. {status_description}. Retrouvez les conditions d'éligibilité sur la page."
+
+            description = re.sub(r'\s+', ' ', description).strip()
+
+            # 4. ID UNIQUE & SOURCE (On utilise le 'slug' de l'URL pour générer un ID différent par spécialité ENS)
+            slug_match = re.search(r'slug=([^&]+)', url)
+            slug = slug_match.group(1) if slug_match else "unknown"
+            
+            opp_id = str(generate_numeric_id(f"ENS_{slug}", "2026"))
+            source_name = "ENS (Ablanian)"
+            check_and_notify_new_source(source_name)
+
+            # 5. CONSTRUCTION
+            items.append(build_opportunity(
+                opp_id=opp_id,
+                title=title,
+                category="Concours",
+                source=source_name,
+                date_start=date_start,
+                date_end=date_end,
+                url=url,
+                badge_color=badge_color,
+                description=description
+            ))
+            
+            print(f"✅ Scraping réussi pour : {title}")
+            
+            # Petite pause pour ne pas surcharger le serveur Ablanian entre chaque page
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"❌ ERREUR SCRAPING ENS sur {url} : {e}")
+            # On ne fait pas de fallback général ici, sinon ça fausserait les données s'il y a 10 URLs
+
+    return items
+
+
+
+@app.get("/scrape/ens")
+def trigger_ens_scrape():
+      try:
+          # 1. On lance le scraping ENS
+          data = scrape_ens()
+        
+          # 2. Sauvegarde en base de données
+          count = 0
+          for item in data:
+              doc_ref = db.collection("opportunities").document(item["id"])
+            
+              # Vérification : on n'écrase pas si ça existe déjà (sauf si tu veux faire des mises à jour)
+              # Pour l'ENS qui n'a pas de date, tu voudras peut-être enlever le "if not exists" plus tard
+              # pour mettre à jour quand les dates sortiront.
+              if not doc_ref.get().exists:
+                  doc_ref.set(item)
+                  count += 1
+              else:
+                  # Optionnel : Mise à jour si l'item existe déjà (utile quand les dates apparaissent)
+                  doc_ref.update(item) 
+        
+          return {
+              "status": "success", 
+              "source": "ENS", 
+              "added_or_updated": count, 
+              "total_found": len(data),
+              "data": data
+          }
+
+      except Exception as e:
+          print(f"Erreur endpoint ENS : {e}")
+          return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+# ---------- SCRAPING FACI (Recrutement Militaire) ----------
+def scrape_faci():
+    url = "https://ablanian.ci/concours_admin/view.php?slug=facirecrutement&src=footer"
+    items = []
+
+    try:
+        # Headers pour simuler un navigateur
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://google.com"
+        }
+        
+        print(f"🔄 Connexion à {url}...")
+        resp = requests.get(url, headers=headers, timeout=20, verify=False)
+        
+        if resp.status_code != 200:
+            print(f"⚠️ Erreur HTTP : {resp.status_code}")
+            return [] # On retourne vide plutôt que de planter
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # 1. Extraction du TITRE
+        title_tag = soup.find("h1")
+        title = title_tag.get_text(strip=True) if title_tag else "Recrutement FACI 2026"
+
+        # 2. Extraction des DATES (Regex ultra-blindée)
+        page_text = soup.get_text(separator=" ", strip=True)
+        date_start = "À venir"
+        date_end = "À venir"
+        badge_color = "gray"
+
+        # 💡 EXPLICATION : 
+        # D[eé]but -> Accepte "Début" ou "Debut"
+        # .{0,15}? -> Accepte jusqu'à 15 caractères entre le mot et la date (gère les icônes 🟢, les espaces, les " : ")
+        # (\d{2}[/-]\d{2}[/-]\d{4}) -> Capture la date avec des slashs ou des tirets
+        start_match = re.search(r"D[eé]but.{0,15}?(\d{2}[/-]\d{2}[/-]\d{4})", page_text, re.IGNORECASE)
+        end_match = re.search(r"(?:Fin|Cl[ôo]ture).{0,15}?(\d{2}[/-]\d{2}[/-]\d{4})", page_text, re.IGNORECASE)
+        
+        if start_match and end_match:
+            date_start = start_match.group(1).replace('-', '/')
+            date_end = end_match.group(1).replace('-', '/')
+            badge_color = "green"
+        elif start_match:
+            date_start = start_match.group(1).replace('-', '/')
+            badge_color = "green"
+        else:
+            # Fallback : format "Du 09 Février au..."
+            pattern_du_au = re.search(r"Du\s+(\d{1,2}\s+[a-zA-Zéû]+\s+\d{4})\s+au\s+(\d{1,2}\s+[a-zA-Zéû]+\s+\d{4})", page_text, re.IGNORECASE)
+            if pattern_du_au:
+                date_start = pattern_du_au.group(1)
+                date_end = pattern_du_au.group(2)
+                badge_color = "green"
+
+        # 3. Extraction de la DESCRIPTION (Conditions CLÉS : Armée)
+        conditions_list = []
+        
+        # Âge
+        age_match = re.search(r"Âge requis\s*[:\.]?\s*(.*?)(Nationalité|Diplôme|Condition|$)", page_text, re.IGNORECASE)
+        if age_match:
+            conditions_list.append(f"Âge: {age_match.group(1).strip()}")
+            
+        # Diplôme
+        diploma_match = re.search(r"Diplôme[s]?.*?\s*[:\.]?\s*(.*?)(Condition|Autres|Taille|$)", page_text, re.IGNORECASE)
+        if diploma_match:
+            conditions_list.append(f"Diplôme: {diploma_match.group(1).strip()}")
+        
+        # Taille
+        height_match = re.search(r"Taille minimale\s*[:\.]?\s*(\d+[,.]\d+\s*m?)", page_text, re.IGNORECASE)
+        if height_match:
+            conditions_list.append(f"Taille min: {height_match.group(1).strip()}")
+
+        # Construction dynamique de la description
+        if conditions_list:
+            desc_text = " | ".join(conditions_list)
+            if len(desc_text) > 150: 
+                desc_text = desc_text[:147] + "..."
+            description = f"{desc_text}. Inscriptions du {date_start} au {date_end}."
+        else:
+            description = f"Recrutement Militaire FACI. Inscriptions du {date_start} au {date_end}. Vérifiez la taille et l'âge requis sur le site officiel."
+
+        description = re.sub(r'\s+', ' ', description).strip() # Nettoyage des espaces en trop
+
+        # 4. ID & SOURCE
+        opp_id = str(generate_numeric_id("FACI", "2026"))
+        source_name = "FACI (Ablanian)"
+        check_and_notify_new_source(source_name)
+
+        # 5. CONSTRUCTION DE L'ITEM
+        items.append(build_opportunity(
+            opp_id=opp_id,
+            title=title,
+            category="Concours",
+            source=source_name,
+            date_start=date_start,
+            date_end=date_end,
+            url=url,
+            badge_color=badge_color,
+            description=description,
+            isFeatured=True
+        ))
+        
+        print(f"✅ Scraping FACI réussi ({date_start} - {date_end}).")
+
+    except Exception as e:
+        print(f"❌ ERREUR SCRAPING FACI : {e}")
+        # FALLBACK de sécurité
+        items.append(build_opportunity(
+            opp_id="FACI_FALLBACK_2026",
+            title="Recrutement FACI 2026",
+            category="Concours",
+            source="Ministère Défense",
+            date_start="À venir", 
+            date_end="À venir",
+            url="https://defense.gouv.ci", 
+            badge_color="red",
+            description="Recrutement Militaire FACI 2026. Veuillez consulter le site du Ministère de la Défense pour les détails."
+        ))
+
+    return items
+
+
+
+
+# @app.get("/scrape/faci")
+# def trigger_faci_scrape():
+#     try:
+#         # 1. Scraping
+#         data = scrape_faci()
+        
+#         # 2. Sauvegarde DB
+#         count = 0
+#         for item in data:
+#             doc_ref = db.collection("opportunities").document(item["id"])
+#             if not doc_ref.get().exists:
+#                 doc_ref.set(item)
+#                 count += 1
+#             else:
+#                 # Mise à jour si déjà existant (pour actualiser les dates si elles changent)
+#                 doc_ref.update(item)
+                
+#         return {
+#             "status": "success", 
+#             "source": "FACI", 
+#             "added_or_updated": count, 
+#             "total_found": len(data), 
+#             "data": data
+#         }
+#     except Exception as e:
+#         return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+# @app.get("/scrape-emails")
+# async def scrape_unread_emails():
+#     try:
+#         # 🎯 LISTE BLANCHE : Mets ici les adresses e-mails ou les domaines de confiance
+#         EXPEDITEURS_AUTORISES = [
+#             "contact@giz.ci", 
+#             "newsletter@educarriere.ci",
+#             "info@emplois.ci",
+#             "tutorat.tuteur@uvci.edu.ci",
+#             "scolarite@uvci.edu.ci",
+#             "stage.emploi@uvci.edu.ci",
+#             "incubateur@uvci.edu.ci", 
+#             "@giz.de" # Tu peux aussi n'autoriser qu'un domaine spécifique
+#         ]
+
+#         IMAP_SERVER = "imap.gmail.com"
+#         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
+#         mail.login(EMAIL_USER, EMAIL_PASS)
+        
+#         mail.select("inbox")
+        
+#         status, messages = mail.search(None, '(UNSEEN)')
+#         email_ids = messages[0].split()
+
+#         if not email_ids:
+#             return {"status": "ok", "message": "Aucun nouvel e-mail à traiter."}
+
+#         opportunites_ajoutees = []
+#         emails_ignores = 0
+
+#         for e_id in email_ids:
+#             res, msg_data = mail.fetch(e_id, '(RFC822)')
+#             for response_part in msg_data:
+#                 if isinstance(response_part, tuple):
+#                     msg = email.message_from_bytes(response_part[1])
+                    
+#                     # 🛡️ FILTRE 1 : Vérification de l'expéditeur
+#                     expediteur_brut = msg.get("From", "")
+#                     nom_expediteur, email_expediteur = parseaddr(expediteur_brut)
+#                     email_expediteur = email_expediteur.lower()
+
+#                     # On vérifie si l'e-mail ou le domaine est dans notre liste blanche
+#                     est_autorise = any(exp in email_expediteur for exp in EXPEDITEURS_AUTORISES)
+
+#                     if not est_autorise:
+#                         print(f"🚫 E-mail ignoré (Expéditeur non autorisé) : {email_expediteur}")
+#                         emails_ignores += 1
+#                         continue # On passe au mail suivant sans le lire !
+
+#                     # Si autorisé, on lit le corps du mail
+#                     body = ""
+#                     if msg.is_multipart():
+#                         for part in msg.walk():
+#                             if part.get_content_type() == "text/plain":
+#                                 body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+#                                 break
+#                     else:
+#                         body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+
+#                     if body:
+#                         print(f"📩 Traitement de l'e-mail de {email_expediteur}...")
+#                         donnees_extraites = extract_opportunity_from_email_with_gemini(body)
+                        
+#                         # 🛡️ FILTRE 2 : Validation par Gemini
+#                         if donnees_extraites and donnees_extraites.get("est_opportunite") == True:
+                            
+#                             nouvelle_opp = {
+#                                 "title": donnees_extraites.get("titre"),
+#                                 "description": donnees_extraites.get("description"),
+#                                 "category": donnees_extraites.get("categorie"),
+#                                 "source": donnees_extraites.get("source"),
+#                                 "link": donnees_extraites.get("lien_inscription"),
+#                                 "date_end": donnees_extraites.get("date_limite"),
+#                                 "createdAt": firestore.SERVER_TIMESTAMP,
+#                                 "type": "scraped_email",
+#                                 "imageUrl": choose_image(donnees_extraites.get("source"))
+#                             }
+                            
+#                             update_time, opp_ref = db.collection("opportunities").add(nouvelle_opp)
+#                             opportunites_ajoutees.append(donnees_extraites.get("titre"))
+                            
+#                             check_and_notify_new_source(nouvelle_opp["source"])
+#                             send_opportunity_notification_to_all(
+#                                 nouvelle_opp["title"], 
+#                                 nouvelle_opp["source"], 
+#                                 nouvelle_opp["category"], 
+#                                 opp_ref.id
+#                             )
+#                         else:
+#                             print("🤖 Gemini a rejeté ce mail (Ce n'est pas une opportunité valide).")
+
+#         mail.close()
+#         mail.logout()
+
+#         return {
+#             "status": "success", 
+#             "ajouts": len(opportunites_ajoutees),
+#             "opportunites_ajoutees": opportunites_ajoutees,
+#             "emails_ignores_securite": emails_ignores
+#         }
+
+#     except Exception as e:
+#         print(f"❌ Erreur lors du scraping des emails: {e}")
+#         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+
+
+
+
+
 # ---------- ROUTE SCRAP ----------
-@app.get("/scrape")
-def scrape_opportunities():
+
+def run_all_scrapers():
+    """Cette fonction va tourner en arrière-plan sans bloquer le serveur."""
+    print("🚀 Début du scraping en arrière-plan...")
+    
     scrapers = [
+        scrape_agence_emploi_jeunes,
+        scrape_linkedin_jobs,
+        scrape_faci,
+        scrape_ens,
+        scrape_cafop,
+        scrape_facebook_pages,
         scrape_ena_directs,
         scrape_infas,
         scrape_minef_concours,
@@ -1304,19 +3618,31 @@ def scrape_opportunities():
         scrape_educarriere,
         scrape_educarriere_formations,
         scrape_kaggle_competitions,
+        scrape_option_carriere,
+        scrape_projob_ivoire,
+        scrape_sociumjob,
     ]
 
     ops = []
     for scraper in scrapers:
         try:
-            ops += scraper()
+            # On exécute le scraper et on ajoute les résultats à la liste globale
+            result = scraper()
+            if result:
+                ops += result
         except Exception as e:
-            print(f"❌ Erreur dans {scraper.__name__}: {e}")
+            # Si un scraper plante, on log l'erreur mais on continue avec les autres
+            print(f"❌ Erreur dans {scraper.__name__ if hasattr(scraper, '__name__') else 'un scraper'}: {e}")
             continue
 
     added, updated = 0, 0
     for opp in ops:
         try:
+            # On vérifie que le scraper a bien renvoyé un ID
+            if not opp.get("id"):
+                print(f"⚠️ Opportunité ignorée car pas d'ID : {opp.get('title', 'Sans titre')}")
+                continue
+
             doc_ref = db.collection("opportunities").document(str(opp["id"]))
             doc = doc_ref.get()
 
@@ -1334,23 +3660,152 @@ def scrape_opportunities():
                 opp_to_write["notified"] = False
                 doc_ref.set(opp_to_write)
                 added += 1
+
+                # 👇 C'EST EXACTEMENT ICI QU'ON MET À JOUR L'APPEL 👇
+                try:
+                    notify_users_by_interest(
+                        opportunity_id=str(opp["id"]), 
+                        opportunity_title=opp.get("title", "Nouvelle opportunité"), 
+                        category=opp.get("category", "Général"),
+                        source=opp.get("source", ""),       # 👈 AJOUT DE LA SOURCE POUR L'EXCEPTION KAGGLE
+                        date_end=opp.get("date_end", None)  # 👈 AJOUT DE LA DATE DE FIN POUR LE FILTRE D'EXPIRATION
+                    )
+                except Exception as notif_error:
+                    print(f"⚠️ Erreur lors de l'envoi des notifs ciblées pour {opp['id']}: {notif_error}")
+                # 👆 FIN DE L'AJOUT 👆
+
         except Exception as e:
-            print(f"⚠️ Firestore error for opp {opp.get('id')}: {e}")
+            print(f"⚠️ Firestore error for opp {opp.get('id', 'inconnu')}: {e}")
             continue
 
+    # 🧹 --- NOUVEAU : NETTOYAGE DES OPPORTUNITÉS EXPIRÉES --- 🧹
+    deleted_count = 0
+    try:
+        print("🧹 Lancement du nettoyage des opportunités expirées...")
+        deleted_count = delete_expired_opportunities()
+        print(f"✅ Nettoyage terminé : {deleted_count} opportunités supprimées.")
+    except Exception as e:
+        print(f"❌ Erreur lors de la suppression des opportunités expirées : {e}")
+    # --------------------------------------------------------
+
+    # On affiche le bilan final dans la console du serveur
+    print(f"🎉 Bilan final du scraping : {added} ajoutés, {updated} mis à jour, {deleted_count} supprimés sur {len(ops)} trouvés.")
+
+
+@app.get("/scrape")
+def scrape_opportunities_endpoint(background_tasks: BackgroundTasks):
+    """
+    Cette route répond immédiatement au client et lance le travail lourd en tâche de fond.
+    """
+    # Ajoute la fonction de scraping à la file d'attente
+    background_tasks.add_task(run_all_scrapers)
+    
+    # Répond tout de suite sans faire attendre
     return {
-        "message": "Scraping terminé",
-        "ajoutés": added,
-        "mis_à_jour": updated,
-        "total": len(ops)
+        "message": "Le scraping a été lancé avec succès en arrière-plan !",
+        "info": "Consultez les logs du serveur pour voir l'avancement et le bilan final."
     }
 
+
+
+# # ---------- ROUTE SCRAP ----------
+# @app.get("/scrape")
+# def scrape_opportunities():
+#     scrapers = [
+#         scrape_agence_emploi_jeunes,
+#         scrape_linkedin_jobs,
+#         scrape_faci,
+#         scrape_ens,
+#         scrape_cafop,
+#         scrape_facebook_pages,
+#         scrape_ena_directs,
+#         scrape_infas,
+#         scrape_minef_concours,
+#         scrape_devpost_hackathons,
+#         scrape_novojob,
+#         scrape_daad_scholarship,
+#         scrape_educarriere,
+#         scrape_educarriere_formations,
+#         scrape_kaggle_competitions,
+#         scrape_option_carriere,
+#         scrape_projob_ivoire,
+#         scrape_sociumjob,
+#     ]
+
+#     ops = []
+#     for scraper in scrapers:
+#         try:
+#             # On exécute le scraper et on ajoute les résultats à la liste globale
+#             result = scraper()
+#             if result:
+#                 ops += result
+#         except Exception as e:
+#             # Si un scraper plante, on log l'erreur mais on continue avec les autres
+#             print(f"❌ Erreur dans {scraper.__name__ if hasattr(scraper, '__name__') else 'un scraper'}: {e}")
+#             continue
+
+#     added, updated = 0, 0
+#     for opp in ops:
+#         try:
+#             # On vérifie que le scraper a bien renvoyé un ID
+#             if not opp.get("id"):
+#                 print(f"⚠️ Opportunité ignorée car pas d'ID : {opp.get('title', 'Sans titre')}")
+#                 continue
+
+#             doc_ref = db.collection("opportunities").document(str(opp["id"]))
+#             doc = doc_ref.get()
+
+#             opp_to_write = dict(opp)
+#             opp_to_write["createdAt"] = firestore.SERVER_TIMESTAMP
+
+#             if "seenBy" not in opp_to_write:
+#                 opp_to_write["seenBy"] = []
+
+#             if doc.exists:
+#                 doc_ref.set(opp_to_write, merge=True)
+#                 updated += 1
+#             else:
+#                 opp_to_write["isNew"] = True
+#                 opp_to_write["notified"] = False
+#                 doc_ref.set(opp_to_write)
+#                 added += 1
+
+#                 # 👇 C'EST EXACTEMENT ICI QU'ON MET À JOUR L'APPEL 👇
+#                 # On ajoute bien 'source' et 'date_end' avec .get() par sécurité
+#                 try:
+#                     notify_users_by_interest(
+#                         opportunity_id=str(opp["id"]), 
+#                         opportunity_title=opp.get("title", "Nouvelle opportunité"), 
+#                         category=opp.get("category", "Général"),
+#                         source=opp.get("source", ""),       # 👈 AJOUT DE LA SOURCE POUR L'EXCEPTION KAGGLE
+#                         date_end=opp.get("date_end", None)  # 👈 AJOUT DE LA DATE DE FIN POUR LE FILTRE D'EXPIRATION
+#                     )
+#                 except Exception as notif_error:
+#                     print(f"⚠️ Erreur lors de l'envoi des notifs ciblées pour {opp['id']}: {notif_error}")
+#                 # 👆 FIN DE L'AJOUT 👆
+
+#         except Exception as e:
+#             print(f"⚠️ Firestore error for opp {opp.get('id', 'inconnu')}: {e}")
+#             continue
+
+#     # 🧹 --- NOUVEAU : NETTOYAGE DES OPPORTUNITÉS EXPIRÉES --- 🧹
+#     deleted_count = 0
+#     try:
+#         print("🧹 Lancement du nettoyage des opportunités expirées...")
+#         deleted_count = delete_expired_opportunities()
+#         print(f"✅ Nettoyage terminé : {deleted_count} opportunités supprimées.")
+#     except Exception as e:
+#         print(f"❌ Erreur lors de la suppression des opportunités expirées : {e}")
+#     # --------------------------------------------------------
+
+#     return {
+#         "message": "Scraping et nettoyage terminés",
+#         "ajoutés": added,
+#         "mis_à_jour": updated,
+#         "supprimés": deleted_count,  # <--- Le total des suppressions apparaît ici !
+#         "total_scrappés": len(ops)
+#     }
     
-
-
-
-
-
 
 
 @app.get("/")

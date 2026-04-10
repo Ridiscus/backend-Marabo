@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "../../Desktop/marabo privacy"
+		},
+		{
+			"path": "../../Desktop/deblocage"
+		},
+		{
+			"path": "../../Desktop/Marabo Web"
+		},
+		{
+			"path": "../../Desktop/MaraboWeb"
+		},
+		{
+			"path": "../../Desktop/E-MESSE WEB"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "deblocage"
+	}
+}
