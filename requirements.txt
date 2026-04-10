@@ -10,3 +10,4 @@ selenium
 webdriver-manager
 kaggle
 urllib3
+facebook-scraper
