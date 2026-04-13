@@ -130,7 +130,7 @@ def get_fcm_access_token():
 
 # Initialise un token immédiatement
 access_token = get_fcm_access_token()
-print("Access Token:", access_token)
+
 
 
 
@@ -3653,7 +3653,7 @@ async def chat_with_marabot(chat_req: ChatMessage):
 # ---------- ROUTE SCRAP ----------
 def run_all_scrapers():
     """Cette fonction va tourner en arrière-plan sans bloquer le serveur."""
-    print(f"[{datetime.datetime.now()}] 🚀 Début du scraping en arrière-plan...")
+    print("🚀 Début du scraping en arrière-plan...")
     
     scrapers = [
         scrape_agence_emploi_jeunes,
