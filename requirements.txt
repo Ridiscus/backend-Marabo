@@ -14,3 +14,4 @@ facebook-scraper
 lxml_html_clean
 apify-client
 google-generativeai
+python-multipart
