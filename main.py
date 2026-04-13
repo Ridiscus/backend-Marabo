@@ -60,6 +60,7 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 
 
 
+
 # Désactiver les warnings SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -3593,6 +3594,50 @@ def scrape_faci():
 
 
 
+# Définition du format du message reçu par l'API
+class ChatMessage(BaseModel):
+    message: str
+
+@app.post("/chat")
+async def chat_with_marabot(chat_req: ChatMessage):
+    try:
+        # 1. On récupère les opportunités depuis Firestore
+        docs = db.collection('opportunities').get()
+        opportunities = [doc.to_dict() for doc in docs]
+        
+        # 2. On prépare un résumé des offres pour que Gemini les lise
+        context = "Voici les opportunités actuelles dans la base de données :\n"
+        for opp in opportunities:
+            titre = opp.get('title', 'Sans titre')
+            categorie = opp.get('category', 'Non classé')
+            lien = opp.get('url', 'Pas de lien')
+            context += f"- Titre: {titre} | Catégorie: {categorie} | Lien: {lien}\n"
+
+        # 3. On configure le modèle Gemini 2.0 Flash
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        # 4. On crée le prompt magique en lui donnant le contexte et le message de l'utilisateur
+        prompt = f"""Tu es Marabot, un assistant virtuel chaleureux et expert. 
+        Ton but est d'aider l'utilisateur à trouver l'opportunité idéale parmi celles disponibles.
+        
+        {context}
+        
+        Message de l'utilisateur : "{chat_req.message}"
+        
+        Instructions :
+        - Réponds de manière naturelle, amicale et concise.
+        - Si la demande de l'utilisateur correspond à des opportunités dans la liste ci-dessus, propose-les lui avec leurs liens.
+        - S'il n'y a pas d'offre correspondante, dis-lui gentiment et suggère-lui de chercher autre chose.
+        - Utilise des emojis pour rendre le texte agréable.
+        """
+        
+        # 5. On génère la réponse
+        response = model.generate_content(prompt)
+        
+        return {"reply": response.text}
+
+    except Exception as e:
+        return {"reply": f"Oups, j'ai eu un petit bug dans mon circuit IA : {str(e)}"}
 
 
 
