@@ -56,7 +56,8 @@ import urllib3
 from kaggle.api.kaggle_api_extended import KaggleApi
 
 
-
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.background import BackgroundScheduler
 
 
 
@@ -3650,10 +3651,9 @@ async def chat_with_marabot(chat_req: ChatMessage):
 
 
 # ---------- ROUTE SCRAP ----------
-
 def run_all_scrapers():
     """Cette fonction va tourner en arrière-plan sans bloquer le serveur."""
-    print("🚀 Début du scraping en arrière-plan...")
+    print(f"[{datetime.datetime.now()}] 🚀 Début du scraping en arrière-plan...")
     
     scrapers = [
         scrape_agence_emploi_jeunes,
@@ -3731,7 +3731,7 @@ def run_all_scrapers():
             print(f"⚠️ Firestore error for opp {opp.get('id', 'inconnu')}: {e}")
             continue
 
-    # 🧹 --- NOUVEAU : NETTOYAGE DES OPPORTUNITÉS EXPIRÉES --- 🧹
+    # 🧹 --- NETTOYAGE DES OPPORTUNITÉS EXPIRÉES --- 🧹
     deleted_count = 0
     try:
         print("🧹 Lancement du nettoyage des opportunités expirées...")
@@ -3739,10 +3739,135 @@ def run_all_scrapers():
         print(f"✅ Nettoyage terminé : {deleted_count} opportunités supprimées.")
     except Exception as e:
         print(f"❌ Erreur lors de la suppression des opportunités expirées : {e}")
-    # --------------------------------------------------------
 
-    # On affiche le bilan final dans la console du serveur
     print(f"🎉 Bilan final du scraping : {added} ajoutés, {updated} mis à jour, {deleted_count} supprimés sur {len(ops)} trouvés.")
+
+
+# --- CONFIGURATION DU CRON (PLANIFICATEUR) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Démarrage du serveur et du planificateur de tâches...")
+    
+    scheduler = BackgroundScheduler()
+    # 🔥 On planifie TA fonction toutes les 12 heures
+    scheduler.add_job(run_all_scrapers, 'interval', hours=12)
+    scheduler.start()
+    
+    # 🔥 On lance un premier scraping tout de suite au démarrage du serveur
+    run_all_scrapers()
+    
+    yield # C'est ici que FastAPI "attend" et écoute les requêtes de l'app mobile
+    
+    # À l'arrêt du serveur (ce qui n'arrive presque jamais sur Render)
+    print("Arrêt du planificateur...")
+    scheduler.shutdown()
+
+# --- INITIALISATION DE FASTAPI AVEC LE PLANIFICATEUR ---
+app = FastAPI(lifespan=lifespan)
+
+
+
+
+
+
+
+
+
+
+
+
+# def run_all_scrapers():
+#     """Cette fonction va tourner en arrière-plan sans bloquer le serveur."""
+#     print("🚀 Début du scraping en arrière-plan...")
+    
+#     scrapers = [
+#         scrape_agence_emploi_jeunes,
+#         scrape_linkedin_jobs,
+#         scrape_faci,
+#         scrape_ens,
+#         scrape_cafop,
+#         scrape_facebook_pages,
+#         scrape_ena_directs,
+#         scrape_infas,
+#         scrape_minef_concours,
+#         scrape_devpost_hackathons,
+#         scrape_novojob,
+#         scrape_daad_scholarship,
+#         scrape_educarriere,
+#         scrape_educarriere_formations,
+#         scrape_kaggle_competitions,
+#         scrape_option_carriere,
+#         scrape_projob_ivoire,
+#         scrape_sociumjob,
+#     ]
+
+#     ops = []
+#     for scraper in scrapers:
+#         try:
+#             # On exécute le scraper et on ajoute les résultats à la liste globale
+#             result = scraper()
+#             if result:
+#                 ops += result
+#         except Exception as e:
+#             # Si un scraper plante, on log l'erreur mais on continue avec les autres
+#             print(f"❌ Erreur dans {scraper.__name__ if hasattr(scraper, '__name__') else 'un scraper'}: {e}")
+#             continue
+
+#     added, updated = 0, 0
+#     for opp in ops:
+#         try:
+#             # On vérifie que le scraper a bien renvoyé un ID
+#             if not opp.get("id"):
+#                 print(f"⚠️ Opportunité ignorée car pas d'ID : {opp.get('title', 'Sans titre')}")
+#                 continue
+
+#             doc_ref = db.collection("opportunities").document(str(opp["id"]))
+#             doc = doc_ref.get()
+
+#             opp_to_write = dict(opp)
+#             opp_to_write["createdAt"] = firestore.SERVER_TIMESTAMP
+
+#             if "seenBy" not in opp_to_write:
+#                 opp_to_write["seenBy"] = []
+
+#             if doc.exists:
+#                 doc_ref.set(opp_to_write, merge=True)
+#                 updated += 1
+#             else:
+#                 opp_to_write["isNew"] = True
+#                 opp_to_write["notified"] = False
+#                 doc_ref.set(opp_to_write)
+#                 added += 1
+
+#                 # 👇 C'EST EXACTEMENT ICI QU'ON MET À JOUR L'APPEL 👇
+#                 try:
+#                     notify_users_by_interest(
+#                         opportunity_id=str(opp["id"]), 
+#                         opportunity_title=opp.get("title", "Nouvelle opportunité"), 
+#                         category=opp.get("category", "Général"),
+#                         source=opp.get("source", ""),       # 👈 AJOUT DE LA SOURCE POUR L'EXCEPTION KAGGLE
+#                         date_end=opp.get("date_end", None)  # 👈 AJOUT DE LA DATE DE FIN POUR LE FILTRE D'EXPIRATION
+#                     )
+#                 except Exception as notif_error:
+#                     print(f"⚠️ Erreur lors de l'envoi des notifs ciblées pour {opp['id']}: {notif_error}")
+#                 # 👆 FIN DE L'AJOUT 👆
+
+#         except Exception as e:
+#             print(f"⚠️ Firestore error for opp {opp.get('id', 'inconnu')}: {e}")
+#             continue
+
+#     # 🧹 --- NOUVEAU : NETTOYAGE DES OPPORTUNITÉS EXPIRÉES --- 🧹
+#     deleted_count = 0
+#     try:
+#         print("🧹 Lancement du nettoyage des opportunités expirées...")
+#         deleted_count = delete_expired_opportunities()
+#         print(f"✅ Nettoyage terminé : {deleted_count} opportunités supprimées.")
+#     except Exception as e:
+#         print(f"❌ Erreur lors de la suppression des opportunités expirées : {e}")
+#     # --------------------------------------------------------
+
+#     # On affiche le bilan final dans la console du serveur
+#     print(f"🎉 Bilan final du scraping : {added} ajoutés, {updated} mis à jour, {deleted_count} supprimés sur {len(ops)} trouvés.")
 
 
 @app.get("/scrape")
