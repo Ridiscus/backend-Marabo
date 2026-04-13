@@ -3749,23 +3749,25 @@ async def lifespan(app: FastAPI):
     print("Démarrage du serveur et du planificateur de tâches...")
     
     scheduler = BackgroundScheduler()
-    # 🔥 On planifie TA fonction toutes les 12 heures
-    scheduler.add_job(run_all_scrapers, 'interval', hours=12)
+    
+    # 🔥 L'ASTUCE EST ICI : On planifie toutes les 12 heures, 
+    # MAIS on utilise next_run_time pour lui dire "Fais le premier tour MAINTENANT, en arrière-plan"
+    scheduler.add_job(
+        run_all_scrapers, 
+        'interval', 
+        hours=12, 
+        next_run_time=datetime.now()
+    )
+    
     scheduler.start()
     
-    # 🔥 On lance un premier scraping tout de suite au démarrage du serveur
-    run_all_scrapers()
+    # On a SUPPRIMÉ l'appel direct à run_all_scrapers() ici !
     
-    yield # C'est ici que FastAPI "attend" et écoute les requêtes de l'app mobile
+    yield # FastAPI s'allume instantanément (Render est content et valide le déploiement !)
     
-    # À l'arrêt du serveur (ce qui n'arrive presque jamais sur Render)
+    # À l'arrêt du serveur
     print("Arrêt du planificateur...")
     scheduler.shutdown()
-
-# --- INITIALISATION DE FASTAPI AVEC LE PLANIFICATEUR ---
-app = FastAPI(lifespan=lifespan)
-
-
 
 
 
