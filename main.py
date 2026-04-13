@@ -3594,7 +3594,11 @@ def scrape_faci():
 
 
 
-# Définition du format du message reçu par l'API
+
+
+# 👈 AJOUTE CETTE LIGNE : Elle va chercher la clé secrète dans Render
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
 class ChatMessage(BaseModel):
     message: str
 
@@ -3605,7 +3609,7 @@ async def chat_with_marabot(chat_req: ChatMessage):
         docs = db.collection('opportunities').get()
         opportunities = [doc.to_dict() for doc in docs]
         
-        # 2. On prépare un résumé des offres pour que Gemini les lise
+        # 2. On prépare le contexte
         context = "Voici les opportunités actuelles dans la base de données :\n"
         for opp in opportunities:
             titre = opp.get('title', 'Sans titre')
@@ -3613,10 +3617,10 @@ async def chat_with_marabot(chat_req: ChatMessage):
             lien = opp.get('url', 'Pas de lien')
             context += f"- Titre: {titre} | Catégorie: {categorie} | Lien: {lien}\n"
 
-        # 3. On configure le modèle Gemini 2.0 Flash
+        # 3. On initialise le modèle (plus besoin de remettre la clé ici)
         model = genai.GenerativeModel('gemini-2.0-flash')
         
-        # 4. On crée le prompt magique en lui donnant le contexte et le message de l'utilisateur
+        # 4. Le prompt...
         prompt = f"""Tu es Marabot, un assistant virtuel chaleureux et expert. 
         Ton but est d'aider l'utilisateur à trouver l'opportunité idéale parmi celles disponibles.
         
@@ -3638,6 +3642,9 @@ async def chat_with_marabot(chat_req: ChatMessage):
 
     except Exception as e:
         return {"reply": f"Oups, j'ai eu un petit bug dans mon circuit IA : {str(e)}"}
+
+
+
 
 
 
