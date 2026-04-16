@@ -979,51 +979,51 @@ def list_opportunities():
 
 
 
-def delete_expired_opportunities():
-    now = datetime.utcnow().date()
-    deleted = 0
-    all_docs = db.collection("opportunities").stream()
+# def delete_expired_opportunities():
+#     now = datetime.utcnow().date()
+#     deleted = 0
+#     all_docs = db.collection("opportunities").stream()
 
-    for doc in all_docs:
-        data = doc.to_dict()
-        try:
-            # Priorité à date_end, sinon date_start
-            date_str = data.get("date_end") or data.get("date_start")
-            if not date_str:
-                continue
+#     for doc in all_docs:
+#         data = doc.to_dict()
+#         try:
+#             # Priorité à date_end, sinon date_start
+#             date_str = data.get("date_end") or data.get("date_start")
+#             if not date_str:
+#                 continue
 
-            # Si c'est déjà un datetime (Firestore Timestamp)
-            if isinstance(date_str, datetime):
-                opp_date = date_str.date()
-            else:
-                formats_possibles = [
-                    "%Y-%m-%d", "%d-%m-%Y", 
-                    "%d/%m/%Y", "%Y/%m/%d"
-                ]
+#             # Si c'est déjà un datetime (Firestore Timestamp)
+#             if isinstance(date_str, datetime):
+#                 opp_date = date_str.date()
+#             else:
+#                 formats_possibles = [
+#                     "%Y-%m-%d", "%d-%m-%Y", 
+#                     "%d/%m/%Y", "%Y/%m/%d"
+#                 ]
                 
-                opp_date = None
-                for fmt in formats_possibles:
-                    try:
-                        clean_date = str(date_str).strip()
-                        opp_date = datetime.strptime(clean_date, fmt).date()
-                        break
-                    except ValueError:
-                        continue
+#                 opp_date = None
+#                 for fmt in formats_possibles:
+#                     try:
+#                         clean_date = str(date_str).strip()
+#                         opp_date = datetime.strptime(clean_date, fmt).date()
+#                         break
+#                     except ValueError:
+#                         continue
                 
-                if opp_date is None:
-                    continue
+#                 if opp_date is None:
+#                     continue
 
-            # Suppression si date de fin dépassée
-            if opp_date < now:
-                db.collection("opportunities").document(doc.id).delete()
-                deleted += 1
-                print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
+#             # Suppression si date de fin dépassée
+#             if opp_date < now:
+#                 db.collection("opportunities").document(doc.id).delete()
+#                 deleted += 1
+#                 print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
 
-        except Exception as e:
-            print(f"Erreur suppression doc {doc.id}: {e}")
-            continue
+#         except Exception as e:
+#             print(f"Erreur suppression doc {doc.id}: {e}")
+#             continue
 
-    return deleted
+#     return deleted
 
 
 
@@ -1062,55 +1062,55 @@ def delete_notifications_for_opportunity(opportunity_id):
         print(f"❌ Erreur lors du nettoyage des notifications fantômes : {e}")
 
 
-def delete_expired_opportunities():
-    now = datetime.utcnow().date()
-    deleted = 0
-    all_docs = db.collection("opportunities").stream()
+# def delete_expired_opportunities():
+#     now = datetime.utcnow().date()
+#     deleted = 0
+#     all_docs = db.collection("opportunities").stream()
 
-    for doc in all_docs:
-        data = doc.to_dict()
-        try:
-            # Priorité à date_end, sinon date_start
-            date_str = data.get("date_end") or data.get("date_start")
-            if not date_str:
-                continue
+#     for doc in all_docs:
+#         data = doc.to_dict()
+#         try:
+#             # Priorité à date_end, sinon date_start
+#             date_str = data.get("date_end") or data.get("date_start")
+#             if not date_str:
+#                 continue
 
-            # Si c'est déjà un datetime (Firestore Timestamp)
-            if isinstance(date_str, datetime):
-                opp_date = date_str.date()
-            else:
-                formats_possibles = [
-                    "%Y-%m-%d", "%d-%m-%Y", 
-                    "%d/%m/%Y", "%Y/%m/%d"
-                ]
+#             # Si c'est déjà un datetime (Firestore Timestamp)
+#             if isinstance(date_str, datetime):
+#                 opp_date = date_str.date()
+#             else:
+#                 formats_possibles = [
+#                     "%Y-%m-%d", "%d-%m-%Y", 
+#                     "%d/%m/%Y", "%Y/%m/%d"
+#                 ]
                 
-                opp_date = None
-                for fmt in formats_possibles:
-                    try:
-                        clean_date = str(date_str).strip()
-                        opp_date = datetime.strptime(clean_date, fmt).date()
-                        break
-                    except ValueError:
-                        continue
+#                 opp_date = None
+#                 for fmt in formats_possibles:
+#                     try:
+#                         clean_date = str(date_str).strip()
+#                         opp_date = datetime.strptime(clean_date, fmt).date()
+#                         break
+#                     except ValueError:
+#                         continue
                 
-                if opp_date is None:
-                    continue
+#                 if opp_date is None:
+#                     continue
 
-            # Suppression si date de fin dépassée
-            if opp_date < now:
-                # 1. On supprime l'offre principale
-                doc.reference.delete() # Un poil plus opti que db.collection(...).document(doc.id)
-                deleted += 1
-                print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
+#             # Suppression si date de fin dépassée
+#             if opp_date < now:
+#                 # 1. On supprime l'offre principale
+#                 doc.reference.delete() # Un poil plus opti que db.collection(...).document(doc.id)
+#                 deleted += 1
+#                 print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
 
-                # 2. 👇 ON SUPPRIME LES NOTIFICATIONS FANTÔMES 👇
-                delete_notifications_for_opportunity(doc.id)
+#                 # 2. 👇 ON SUPPRIME LES NOTIFICATIONS FANTÔMES 👇
+#                 delete_notifications_for_opportunity(doc.id)
 
-        except Exception as e:
-            print(f"Erreur suppression doc {doc.id}: {e}")
-            continue
+#         except Exception as e:
+#             print(f"Erreur suppression doc {doc.id}: {e}")
+#             continue
 
-    return deleted
+#     return deleted
 
 
 
@@ -1220,15 +1220,15 @@ def notify_new_opportunities():
         print(f"✅ Opportunité notifiée: {opp.get('title')}")
 
 
-async def cron_notify_async():
-    while True:
-        try:
-            # check_expired_opportunities_and_notify() remplace delete_expired...
-            check_expired_opportunities_and_notify() 
-            notify_new_opportunities()
-        except Exception as e:
-            print("⚠️ Erreur dans le cron:", e)
-        await asyncio.sleep(60) # Vérifie toutes les minutes
+# async def cron_notify_async():
+#     while True:
+#         try:
+#             # check_expired_opportunities_and_notify() remplace delete_expired...
+#             check_expired_opportunities_and_notify() 
+#             notify_new_opportunities()
+#         except Exception as e:
+#             print("⚠️ Erreur dans le cron:", e)
+#         await asyncio.sleep(60) # Vérifie toutes les minutes
 
 
 
@@ -3771,6 +3771,111 @@ async def lifespan(app: FastAPI):
 
 
 
+
+
+
+# --- FONCTION DE NETTOYAGE PHYSIQUE (VERSION FINALE) ---
+def delete_expired_opportunities():
+    print("🧹 Début du nettoyage des opportunités expirées...")
+    now = datetime.utcnow().date()
+    deleted = 0
+    all_docs = db.collection("opportunities").stream()
+
+    for doc in all_docs:
+        data = doc.to_dict()
+        try:
+            # Priorité à date_end, sinon date_start
+            date_str = data.get("date_end") or data.get("date_start")
+            if not date_str:
+                continue
+
+            # Gestion du format de la date (Timestamp Firestore ou String)
+            if isinstance(date_str, datetime):
+                opp_date = date_str.date()
+            else:
+                formats_possibles = [
+                    "%Y-%m-%d", "%d-%m-%Y", 
+                    "%d/%m/%Y", "%Y/%m/%d"
+                ]
+                
+                opp_date = None
+                for fmt in formats_possibles:
+                    try:
+                        clean_date = str(date_str).strip()
+                        opp_date = datetime.strptime(clean_date, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                
+                if opp_date is None:
+                    continue
+
+            # Vérification et Suppression
+            if opp_date < now:
+                # 1. On supprime l'offre principale de Firestore
+                doc.reference.delete()
+                
+                # 2. On supprime les notifications fantômes chez les utilisateurs
+                try:
+                    delete_notifications_for_opportunity(doc.id)
+                except Exception as e:
+                    print(f"⚠️ Erreur lors de la suppression des notifs pour {doc.id}: {e}")
+
+                deleted += 1
+                print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
+
+        except Exception as e:
+            print(f"❌ Erreur sur le document {doc.id}: {e}")
+            continue
+
+    # Bilan final dans les logs Render
+    if deleted > 0:
+        print(f"✨ Nettoyage terminé : {deleted} opportunités (et leurs notifications) supprimées.")
+    else:
+        print("✨ Nettoyage terminé : Rien à supprimer, la base est propre.")
+        
+    return deleted
+
+# --- CONFIGURATION DU LIFESPAN FINAL ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🚀 Démarrage du serveur et du planificateur...")
+    
+    # On s'assure d'utiliser le bon format de date pour le scheduler
+    now = datetime.now()
+    
+    scheduler = BackgroundScheduler()
+    
+    # 1. SCRAPING : Toutes les 12 heures (Lancement immédiat en arrière-plan)
+    scheduler.add_job(
+        run_all_scrapers, 
+        'interval', 
+        hours=12, 
+        next_run_time=now
+    )
+    
+    # 2. NOTIFICATIONS : Toutes les 2 minutes
+    scheduler.add_job(
+        notify_new_opportunities, 
+        'interval', 
+        minutes=2,
+        next_run_time=now # On vérifie aussi les notifs dès le démarrage
+    )
+    
+    # 3. NETTOYAGE : Toutes les 24 heures (DÉCOMMENTÉ ET ACTIVÉ)
+    scheduler.add_job(
+        delete_expired_opportunities, 
+        'interval', 
+        hours=24,
+        next_run_time=now # On fait un premier nettoyage au démarrage
+    )
+
+    scheduler.start()
+    
+    yield # Le serveur est "UP" pour Render
+    
+    print("🛑 Arrêt du planificateur...")
+    scheduler.shutdown()
 
 
 
