@@ -1232,9 +1232,9 @@ def notify_new_opportunities():
 
 
 
-@app.on_event("startup")
-async def start_async_crons():
-    asyncio.create_task(cron_notify_async())
+# @app.on_event("startup")
+# async def start_async_crons():
+#     asyncio.create_task(cron_notify_async())
 
 
 class MarkSeenBody(BaseModel):
