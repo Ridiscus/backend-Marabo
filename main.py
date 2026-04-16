@@ -3988,6 +3988,6 @@ def scrape_opportunities_endpoint(background_tasks: BackgroundTasks):
     
 
 
-@app.get("/")
-def root():
-    return {"message": "Opportunities backend is running!"}
+@app.api_route("/", methods=["GET", "HEAD"])
+def home():
+    return {"status": "Marabot est réveillé et en pleine forme !"}
