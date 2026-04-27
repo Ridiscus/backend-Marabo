@@ -980,24 +980,81 @@ def list_opportunities():
 
 
 
+# @app.post("/create-payment")
+# def create_payment(
+#     amount: int = Body(...), 
+#     description: str = Body("Abonnement Marabo"),
+#     phone: str = Body(None) # Optionnel selon leur doc
+# ):
+#     """
+#     Crée un lien de paiement GeniusPay
+#     """
+#     transaction_id = str(uuid.uuid4())
+    
+#     # URL de test (Sandbox) ou Prod selon tes clés
+#     # Vérifie bien si l'URL change pour la sandbox (souvent sandbox.pay.genius.ci)
+#     url = "https://pay.genius.ci/api/v1/merchant/payments"
+    
+#     headers = {
+#         "X-API-Key": "pk_sandbox_yCaAg1xgFK2ElgwyDQY2LNcGo52jkZhf",
+#         "X-API-Secret": "sk_sandbox_615768bcb225c12a4f3c6d6cfa422f15f2abe08e3165f9c23562ffc47a8a6c45",
+#         "Content-Type": "application/json",
+#         "Accept": "application/json"
+#     }
+    
+#     payload = {
+#         "amount": amount,
+#         "description": description,
+#         "reference": transaction_id, # Utile pour ton suivi
+#         "currency": "XOF"
+#     }
+    
+#     # On ajoute le numéro si fourni
+#     if phone:
+#         payload["customer_phone"] = phone
+
+#     try:
+#         response = requests.post(url, json=payload, headers=headers)
+        
+#         # DEBUG: Affiche la réponse brute dans ton terminal local pour comprendre si ça échoue
+#         print(f"Status GeniusPay: {response.status_code}")
+#         print(f"Réponse brute: {response.text}")
+        
+#         data = response.json()
+        
+#         if response.status_code in [200, 201]:
+#             return {
+#                 "status": "success",
+#                 "checkout_url": data['data']['checkout_url'],
+#                 "transaction_id": transaction_id
+#             }
+#         else:
+#             return {"status": "error", "details": data}
+
+#     except Exception as e:
+#         return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+
+
+
 @app.post("/create-payment")
 def create_payment(
     amount: int = Body(...), 
     description: str = Body("Abonnement Marabo"),
-    phone: str = Body(None) # Optionnel selon leur doc
+    phone: str = Body(None),
+    user_id: str = Body(...) # 👈 OBLIGATOIRE POUR LE SUIVI
 ):
-    """
-    Crée un lien de paiement GeniusPay
-    """
     transaction_id = str(uuid.uuid4())
-    
-    # URL de test (Sandbox) ou Prod selon tes clés
-    # Vérifie bien si l'URL change pour la sandbox (souvent sandbox.pay.genius.ci)
     url = "https://pay.genius.ci/api/v1/merchant/payments"
     
     headers = {
-        "X-API-Key": "pk_sandbox_yCaAg1xgFK2ElgwyDQY2LNcGo52jkZhf",
-        "X-API-Secret": "sk_sandbox_615768bcb225c12a4f3c6d6cfa422f15f2abe08e3165f9c23562ffc47a8a6c45",
+        "X-API-Key": "pk_sandbox_yCaAg1xgFK2ElgwyDQY2LNcGo52jkZhf", # À remplacer
+        "X-API-Secret": "sk_sandbox_615768bcb225c12a4f3c6d6cfa422f15f2abe08e3165f9c23562ffc47a8a6c45", # À remplacer
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
@@ -1005,21 +1062,18 @@ def create_payment(
     payload = {
         "amount": amount,
         "description": description,
-        "reference": transaction_id, # Utile pour ton suivi
-        "currency": "XOF"
+        "reference": transaction_id,
+        "currency": "XOF",
+        "metadata": {
+            "user_id": user_id # 👈 On l'envoie à GeniusPay en cachette
+        }
     }
     
-    # On ajoute le numéro si fourni
     if phone:
         payload["customer_phone"] = phone
 
     try:
         response = requests.post(url, json=payload, headers=headers)
-        
-        # DEBUG: Affiche la réponse brute dans ton terminal local pour comprendre si ça échoue
-        print(f"Status GeniusPay: {response.status_code}")
-        print(f"Réponse brute: {response.text}")
-        
         data = response.json()
         
         if response.status_code in [200, 201]:
@@ -1037,39 +1091,108 @@ def create_payment(
 
 
 
+# @app.post("/webhook/geniuspay")
+# async def geniuspay_webhook(request: Request):
+#     """
+#     Route appelée automatiquement par GeniusPay quand un paiement réussit (ou échoue).
+#     """
+#     try:
+#         # On récupère les données envoyées par GeniusPay
+#         payload = await request.json()
+        
+#         # Affiche le contenu dans le terminal pour voir à quoi ça ressemble
+#         print("🔔 WEBHOOK REÇU DE GENIUSPAY :")
+#         print(payload)
+        
+#         # On extrait les infos importantes (adapte les clés selon la doc exacte de GeniusPay)
+#         # Généralement, ils renvoient un objet avec le "status" et la "reference" qu'on leur avait envoyée
+#         status = payload.get("status")
+#         transaction_id = payload.get("reference")
+        
+#         if status == "COMPLETED" or status == "SUCCESS" or status == "paid":
+#             print(f"✅ Paiement validé pour la transaction : {transaction_id}")
+            
+#             # TODO : C'est ici qu'on va mettre à jour Firestore !
+#             # Par exemple : db.collection("users").document(user_id).update({"isPremium": True})
+            
+#             return {"status": "success", "message": "Paiement bien reçu et traité"}
+            
+#         else:
+#             print(f"❌ Paiement échoué ou annulé pour la transaction : {transaction_id}")
+#             return {"status": "ignored", "message": "Statut de paiement non validé"}
+            
+#     except Exception as e:
+#         print(f"⚠️ Erreur dans le webhook : {e}")
+#         return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+
 @app.post("/webhook/geniuspay")
 async def geniuspay_webhook(request: Request):
-    """
-    Route appelée automatiquement par GeniusPay quand un paiement réussit (ou échoue).
-    """
     try:
-        # On récupère les données envoyées par GeniusPay
         payload = await request.json()
+        print("🔔 WEBHOOK REÇU :", payload)
         
-        # Affiche le contenu dans le terminal pour voir à quoi ça ressemble
-        print("🔔 WEBHOOK REÇU DE GENIUSPAY :")
-        print(payload)
+        # 1. On vérifie l'événement
+        event = payload.get("event")
         
-        # On extrait les infos importantes (adapte les clés selon la doc exacte de GeniusPay)
-        # Généralement, ils renvoient un objet avec le "status" et la "reference" qu'on leur avait envoyée
-        status = payload.get("status")
-        transaction_id = payload.get("reference")
+        # 2. On ouvre le "tiroir" data
+        data = payload.get("data", {})
         
-        if status == "COMPLETED" or status == "SUCCESS" or status == "paid":
-            print(f"✅ Paiement validé pour la transaction : {transaction_id}")
+        status = data.get("status")
+        gp_reference = data.get("reference") # Ex: SANDBOX_J2HCXU...
+        
+        # 3. On récupère le user_id qu'on avait caché dans les metadata
+        metadata = data.get("metadata")
+        user_id = None
+        if isinstance(metadata, dict):
+            user_id = metadata.get("user_id")
+
+        # 4. On valide le paiement
+        if event == "payment.success" and status == "completed":
+            # On récupère le montant envoyé par GeniusPay
+            amount = float(data.get("amount", 0))
+            print(f"✅ Paiement validé (Ref: {gp_reference}) - Montant: {amount} FCFA")
             
-            # TODO : C'est ici qu'on va mettre à jour Firestore !
-            # Par exemple : db.collection("users").document(user_id).update({"isPremium": True})
-            
-            return {"status": "success", "message": "Paiement bien reçu et traité"}
-            
-        else:
-            print(f"❌ Paiement échoué ou annulé pour la transaction : {transaction_id}")
-            return {"status": "ignored", "message": "Statut de paiement non validé"}
+            if user_id:
+                print(f"🚀 Mise à jour Firestore pour l'utilisateur : {user_id}")
+                
+                # On crée la référence vers l'utilisateur
+                user_ref = db.collection("users").document(user_id)
+                
+                # --- ACTION 1 : MISE À JOUR DU SOLDE ---
+                # On utilise Increment pour ajouter le montant au solde existant
+                user_ref.update({
+                    "wallet_balance": firestore.Increment(amount)
+                })
+                
+                # --- ACTION 2 : CRÉATION DE L'HISTORIQUE ---
+                # On enregistre la transaction pour que l'entreprise la voie dans son historique
+                db.collection("transactions").add({
+                    "user_id": user_id,
+                    "amount": amount,
+                    "type": "top_up",
+                    "provider": "geniuspay",
+                    "reference": gp_reference,
+                    "date": firestore.SERVER_TIMESTAMP # Heure exacte du serveur
+                })
+                
+                print("💎 Portefeuille Marabo Pay rechargé avec succès !")
+                return {"status": "success", "message": "Portefeuille mis à jour"}
+                
+            else:
+                print("⚠️ Paiement validé, mais aucun user_id trouvé dans les metadata.")
+                return {"status": "error", "message": "user_id manquant"}
             
     except Exception as e:
-        print(f"⚠️ Erreur dans le webhook : {e}")
+        print(f"⚠️ Erreur Webhook : {e}")
         return {"status": "error", "message": str(e)}
+
+
 
 
 
