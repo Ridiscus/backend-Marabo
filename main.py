@@ -979,6 +979,60 @@ def list_opportunities():
 
 
 
+# Tes clés GeniusPay (À mettre plus tard dans tes variables d'environnement .env)
+GENIUSPAY_API_KEY = "pk_sandbox_yCaAg1xgFK2ElgwyDQY2LNcGo52jkZhf" 
+GENIUSPAY_API_SECRET = "sk_sandbox_615768bcb225c12a4f3c6d6cfa422f15f2abe08e3165f9c23562ffc47a8a6c45"
+GENIUSPAY_URL = "https://pay.genius.ci/api/v1/merchant/payments"
+
+@app.post("/create-payment")
+def create_payment(amount: int, phone: str, user_id: str):
+    """
+    Crée un lien de paiement GeniusPay et le renvoie à Flutter
+    """
+    # On génère un ID de transaction unique pour retrouver le paiement plus tard
+    transaction_id = str(uuid.uuid4())
+    
+    headers = {
+        "X-API-Key": GENIUSPAY_API_KEY,
+        "X-API-Secret": GENIUSPAY_API_SECRET,
+        "Content-Type": "application/json"
+    }
+    
+    # Le payload attendu par GeniusPay
+    # En omettant "payment_method", GeniusPay va générer une URL de Checkout universelle
+    payload = {
+        "amount": amount,
+        "currency": "XOF",
+        "reference": transaction_id, # Super important pour le Webhook !
+        "customer": {
+            "phone": phone
+        },
+        "metadata": {
+            "user_id": user_id # Pour savoir qui a payé quand GeniusPay nous répondra
+        }
+    }
+    
+    try:
+        response = requests.post(GENIUSPAY_URL, json=payload, headers=headers)
+        data = response.json()
+        
+        # On vérifie si GeniusPay a bien accepté la requête
+        if response.status_code == 200 or response.status_code == 201:
+            # On récupère l'URL de paiement à envoyer à Flutter
+            checkout_url = data.get("data", {}).get("checkout_url")
+            
+            return {
+                "status": "success", 
+                "transaction_id": transaction_id,
+                "checkout_url": checkout_url
+            }
+        else:
+            return {"status": "error", "message": "Erreur GeniusPay", "details": data}
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # def delete_expired_opportunities():
 #     now = datetime.utcnow().date()
 #     deleted = 0
