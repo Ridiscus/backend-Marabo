@@ -979,58 +979,98 @@ def list_opportunities():
 
 
 
-# Tes clés GeniusPay (À mettre plus tard dans tes variables d'environnement .env)
-GENIUSPAY_API_KEY = "pk_sandbox_yCaAg1xgFK2ElgwyDQY2LNcGo52jkZhf" 
-GENIUSPAY_API_SECRET = "sk_sandbox_615768bcb225c12a4f3c6d6cfa422f15f2abe08e3165f9c23562ffc47a8a6c45"
-GENIUSPAY_URL = "https://pay.genius.ci/api/v1/merchant/payments"
 
 @app.post("/create-payment")
-def create_payment(amount: int, phone: str, user_id: str):
+def create_payment(
+    amount: int = Body(...), 
+    description: str = Body("Abonnement Marabo"),
+    phone: str = Body(None) # Optionnel selon leur doc
+):
     """
-    Crée un lien de paiement GeniusPay et le renvoie à Flutter
+    Crée un lien de paiement GeniusPay
     """
-    # On génère un ID de transaction unique pour retrouver le paiement plus tard
     transaction_id = str(uuid.uuid4())
     
+    # URL de test (Sandbox) ou Prod selon tes clés
+    # Vérifie bien si l'URL change pour la sandbox (souvent sandbox.pay.genius.ci)
+    url = "https://pay.genius.ci/api/v1/merchant/payments"
+    
     headers = {
-        "X-API-Key": GENIUSPAY_API_KEY,
-        "X-API-Secret": GENIUSPAY_API_SECRET,
-        "Content-Type": "application/json"
+        "X-API-Key": "pk_sandbox_yCaAg1xgFK2ElgwyDQY2LNcGo52jkZhf",
+        "X-API-Secret": "sk_sandbox_615768bcb225c12a4f3c6d6cfa422f15f2abe08e3165f9c23562ffc47a8a6c45",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
     
-    # Le payload attendu par GeniusPay
-    # En omettant "payment_method", GeniusPay va générer une URL de Checkout universelle
     payload = {
         "amount": amount,
-        "currency": "XOF",
-        "reference": transaction_id, # Super important pour le Webhook !
-        "customer": {
-            "phone": phone
-        },
-        "metadata": {
-            "user_id": user_id # Pour savoir qui a payé quand GeniusPay nous répondra
-        }
+        "description": description,
+        "reference": transaction_id, # Utile pour ton suivi
+        "currency": "XOF"
     }
     
+    # On ajoute le numéro si fourni
+    if phone:
+        payload["customer_phone"] = phone
+
     try:
-        response = requests.post(GENIUSPAY_URL, json=payload, headers=headers)
+        response = requests.post(url, json=payload, headers=headers)
+        
+        # DEBUG: Affiche la réponse brute dans ton terminal local pour comprendre si ça échoue
+        print(f"Status GeniusPay: {response.status_code}")
+        print(f"Réponse brute: {response.text}")
+        
         data = response.json()
         
-        # On vérifie si GeniusPay a bien accepté la requête
-        if response.status_code == 200 or response.status_code == 201:
-            # On récupère l'URL de paiement à envoyer à Flutter
-            checkout_url = data.get("data", {}).get("checkout_url")
-            
+        if response.status_code in [200, 201]:
             return {
-                "status": "success", 
-                "transaction_id": transaction_id,
-                "checkout_url": checkout_url
+                "status": "success",
+                "checkout_url": data['data']['checkout_url'],
+                "transaction_id": transaction_id
             }
         else:
-            return {"status": "error", "message": "Erreur GeniusPay", "details": data}
-            
+            return {"status": "error", "details": data}
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+
+
+@app.post("/webhook/geniuspay")
+async def geniuspay_webhook(request: Request):
+    """
+    Route appelée automatiquement par GeniusPay quand un paiement réussit (ou échoue).
+    """
+    try:
+        # On récupère les données envoyées par GeniusPay
+        payload = await request.json()
+        
+        # Affiche le contenu dans le terminal pour voir à quoi ça ressemble
+        print("🔔 WEBHOOK REÇU DE GENIUSPAY :")
+        print(payload)
+        
+        # On extrait les infos importantes (adapte les clés selon la doc exacte de GeniusPay)
+        # Généralement, ils renvoient un objet avec le "status" et la "reference" qu'on leur avait envoyée
+        status = payload.get("status")
+        transaction_id = payload.get("reference")
+        
+        if status == "COMPLETED" or status == "SUCCESS" or status == "paid":
+            print(f"✅ Paiement validé pour la transaction : {transaction_id}")
+            
+            # TODO : C'est ici qu'on va mettre à jour Firestore !
+            # Par exemple : db.collection("users").document(user_id).update({"isPremium": True})
+            
+            return {"status": "success", "message": "Paiement bien reçu et traité"}
+            
+        else:
+            print(f"❌ Paiement échoué ou annulé pour la transaction : {transaction_id}")
+            return {"status": "ignored", "message": "Statut de paiement non validé"}
+            
+    except Exception as e:
+        print(f"⚠️ Erreur dans le webhook : {e}")
+        return {"status": "error", "message": str(e)}
+
 
 
 # def delete_expired_opportunities():
