@@ -28,3 +28,4 @@ Thumbs.db
 # --- Fichiers binaires inutiles sur le serveur ---
 chromedriver.exe
 geckodriver.exe
+
