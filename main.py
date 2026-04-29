@@ -735,6 +735,59 @@ async def apply_for_job(
 
 
 
+
+@app.post("/notify-new-announcement")
+async def notify_new_announcement(
+    company_name: str = Body(...),
+    title: str = Body(...),
+    category: str = Body(...),
+    opportunity_id: str = Body(...)
+):
+    try:
+        # 1. On prépare le message
+        notif_title = f"Nouvelle opportunité : {category} ! 🚀"
+        notif_body = f"{company_name} vient de publier : {title}. Postulez vite !"
+
+        # 2. On envoie à tous les particuliers via le Topic
+        send_push_to_topic(
+            topic="particuliers",
+            title=notif_title,
+            body=notif_body,
+            data={
+                "type": "new_announcement",
+                "opportunity_id": opportunity_id,
+                "click_action": "FLUTTER_NOTIFICATION_CLICK"
+            }
+        )
+
+        return {"status": "success", "message": "Notification envoyée aux particuliers"}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+
+
+def send_push_to_topic(topic: str, title: str, body: str, data: dict = None):
+    """
+    Envoie une notification push à tous les utilisateurs abonnés à un topic.
+    """
+    try:
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=body,
+            ),
+            data=data or {},
+            topic=topic,
+        )
+        response = messaging.send(message)
+        print(f"Successfully sent message to topic {topic}: {response}")
+    except Exception as e:
+        print(f"Error sending topic message: {e}")
+
+
+
+
 #lorsque les entreprises publient une annonce
 def send_opportunity_notification_to_all(opportunity_title, company_name, category, opp_id):
     # 1. Préparation du message pour le Topic 'new_sources'
@@ -1104,54 +1157,6 @@ async def geniuspay_webhook(request: Request):
 
 
 
-# def delete_expired_opportunities():
-#     now = datetime.utcnow().date()
-#     deleted = 0
-#     all_docs = db.collection("opportunities").stream()
-
-#     for doc in all_docs:
-#         data = doc.to_dict()
-#         try:
-#             # Priorité à date_end, sinon date_start
-#             date_str = data.get("date_end") or data.get("date_start")
-#             if not date_str:
-#                 continue
-
-#             # Si c'est déjà un datetime (Firestore Timestamp)
-#             if isinstance(date_str, datetime):
-#                 opp_date = date_str.date()
-#             else:
-#                 formats_possibles = [
-#                     "%Y-%m-%d", "%d-%m-%Y", 
-#                     "%d/%m/%Y", "%Y/%m/%d"
-#                 ]
-                
-#                 opp_date = None
-#                 for fmt in formats_possibles:
-#                     try:
-#                         clean_date = str(date_str).strip()
-#                         opp_date = datetime.strptime(clean_date, fmt).date()
-#                         break
-#                     except ValueError:
-#                         continue
-                
-#                 if opp_date is None:
-#                     continue
-
-#             # Suppression si date de fin dépassée
-#             if opp_date < now:
-#                 db.collection("opportunities").document(doc.id).delete()
-#                 deleted += 1
-#                 print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
-
-#         except Exception as e:
-#             print(f"Erreur suppression doc {doc.id}: {e}")
-#             continue
-
-#     return deleted
-
-
-
 
 def delete_notifications_for_opportunity(opportunity_id):
     """
@@ -1185,60 +1190,6 @@ def delete_notifications_for_opportunity(opportunity_id):
         
     except Exception as e:
         print(f"❌ Erreur lors du nettoyage des notifications fantômes : {e}")
-
-
-# def delete_expired_opportunities():
-#     now = datetime.utcnow().date()
-#     deleted = 0
-#     all_docs = db.collection("opportunities").stream()
-
-#     for doc in all_docs:
-#         data = doc.to_dict()
-#         try:
-#             # Priorité à date_end, sinon date_start
-#             date_str = data.get("date_end") or data.get("date_start")
-#             if not date_str:
-#                 continue
-
-#             # Si c'est déjà un datetime (Firestore Timestamp)
-#             if isinstance(date_str, datetime):
-#                 opp_date = date_str.date()
-#             else:
-#                 formats_possibles = [
-#                     "%Y-%m-%d", "%d-%m-%Y", 
-#                     "%d/%m/%Y", "%Y/%m/%d"
-#                 ]
-                
-#                 opp_date = None
-#                 for fmt in formats_possibles:
-#                     try:
-#                         clean_date = str(date_str).strip()
-#                         opp_date = datetime.strptime(clean_date, fmt).date()
-#                         break
-#                     except ValueError:
-#                         continue
-                
-#                 if opp_date is None:
-#                     continue
-
-#             # Suppression si date de fin dépassée
-#             if opp_date < now:
-#                 # 1. On supprime l'offre principale
-#                 doc.reference.delete() # Un poil plus opti que db.collection(...).document(doc.id)
-#                 deleted += 1
-#                 print(f"🗑️ Supprimé (Expiré): {data.get('title')} ({opp_date})")
-
-#                 # 2. 👇 ON SUPPRIME LES NOTIFICATIONS FANTÔMES 👇
-#                 delete_notifications_for_opportunity(doc.id)
-
-#         except Exception as e:
-#             print(f"Erreur suppression doc {doc.id}: {e}")
-#             continue
-
-#     return deleted
-
-
-
 
 
 
@@ -2868,7 +2819,7 @@ def send_notification_to_topic(topic, title, body):
 
 def analyze_facebook_post_with_gemini(text, source_name):
     # ⚠️ TA CLÉ API
-    GOOGLE_API_KEY = "AIzaSyCzA4YhIjSkKqmPQdfnCNwbKNFjaNiHAV0"
+    GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
     genai.configure(api_key=GOOGLE_API_KEY)
 
     prompt = f"""
@@ -2920,71 +2871,14 @@ def analyze_facebook_post_with_gemini(text, source_name):
 
 
 
-# --- FONCTION D'ANALYSE GEMINI (Version HTTP Stable) ---
-# def analyze_facebook_post_with_gemini(post_text, source_name):
-#     """
-#     Utilise l'URL définie plus haut (GEMINI_API_URL) pour interroger le modèle 2.0
-#     via une requête HTTP standard (évite les erreurs de librairie).
-#     """
-    
-#     # 1. Construction du Prompt
-#     prompt = f"""
-#     Analyse le texte suivant provenant d'un post Facebook de la page '{source_name}'.
-    
-#     Texte du post : 
-#     "{post_text[:1500]}"
-
-#     Tâche :
-#     1. Détermine si c'est une RÉELLE opportunité professionnelle (Offre d'emploi, Stage, Formation, Concours, Bourse, Hackathon).
-#     2. Si c'est une publicité, des vœux, de la politique ou une info sans candidature, REJETTE-LE.
-#     3. Si c'est valide, extrais les infos au format JSON strict.
-
-#     Format de réponse attendu (JSON uniquement) :
-#     {{
-#         "is_valid": true,
-#         "title": "Titre court",
-#         "category": "Emploi" | "Stage" | "Formation" | "Concours" | "Bourse",
-#         "date_end": "JJ/MM/AAAA" (ou null),
-#         "summary": "Résumé en une phrase"
-#     }}
-
-#     Si invalide : {{ "is_valid": false }}
-#     """
-
-#     # 2. Préparation de la requête
-#     headers = { "Content-Type": "application/json" }
-#     data = { "contents": [{ "parts": [{ "text": prompt }] }] }
-
-#     try:
-#         # On utilise ta variable GEMINI_API_URL définie plus haut
-#         # Timeout de 15 secondes pour éviter que ça bloque indéfiniment
-#         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
-#         response.raise_for_status() # Lève une erreur si code 400/500
-        
-#         result = response.json()
-        
-#         # Vérification si Gemini a renvoyé quelque chose
-#         if "candidates" not in result or not result["candidates"]:
-#             return {"is_valid": False}
-
-#         text_resp = result["candidates"][0]["content"]["parts"][0]["text"]
-        
-#         # 3. Nettoyage "Chirurgical" du JSON (Extraction par Regex)
-#         match = re.search(r'\{.*\}', text_resp, re.DOTALL)
-#         if match:
-#             return json.loads(match.group())
-#         else:
-#             return {"is_valid": False}
-
-#     except Exception as e:
-#         print(f"⚠️ Erreur analyse Gemini pour Facebook: {e}")
-#         return {"is_valid": False}
-
-
 
 
 # --- FONCTION D'ANALYSE GEMINI (Réseaux Sociaux : Facebook & LinkedIn) ---
 def analyze_social_post_with_gemini(text_content, source_name, platform="Réseau/Plateforme"):
+    # On force une petite pause AVANT de lancer la requête
+    import time
+    time.sleep(2)
+
     """
     Analyse un texte brut (Post Facebook ou Offre LinkedIn) pour en extraire 
     les infos qualifiées pour le Dashboard B2B.
@@ -3181,6 +3075,11 @@ def scrape_linkedin_jobs():
             # 2. Analyse IA
             prompt_text = f"Titre: {job_title}\nEntreprise: {company}\nLieu: {location}\nDescription: {description}"
             analysis = analyze_social_post_with_gemini(prompt_text, company, "LinkedIn")
+
+            # 👇 AJOUTE CETTE PAUSE ICI (Juste après l'appel à Gemini)
+            import time
+            time.sleep(4) # Attend 4 secondes pour respecter le quota Free Tier
+            # --------------------------------------------------------
         
             if analysis and analysis.get("is_valid"):
                 # 3. Construction de l'ID unique
@@ -3192,21 +3091,50 @@ def scrape_linkedin_jobs():
                 if not image_url: 
                     image_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/LinkedIn_logo_initials.png"
 
-                # 5. Création de l'opportunité (🟢 NOUVEAU : Sécurisation absolue des retours IA avec "or")
+                # # 5. Création de l'opportunité (🟢 NOUVEAU : Sécurisation absolue des retours IA avec "or")
+                # items.append(build_opportunity(
+                #     opp_id=opp_id,
+                #     title=analysis.get("title") or f"{job_title} chez {company}",
+                #     category=analysis.get("category") or "Emplois / Stages",
+                #     source=source_label,
+                #     date_start=datetime.now().strftime("%d/%m/%Y"),
+                #     date_end=analysis.get("date_end") or "À déterminer",
+                #     url=job_url,
+                #     badge_color="blue", 
+                #     description=analysis.get("summary") or (description[:120] + "..."),
+                #     image_url=image_url
+                # ))
+                # print(f"      🎉 LI OCCASION: {job_title} chez {company}")
+
+
+                # 5. Gestion intelligente de la date de fin
+                raw_date_end = analysis.get("date_end")
+                
+                # Si l'IA n'a rien trouvé de concret
+                if not raw_date_end or raw_date_end in ["À déterminer", "null", "None", "Non spécifié"]:
+                    # Calcul : Aujourd'hui + 30 jours
+                    future_date = datetime.now() + timedelta(days=30)
+                    final_date_end = future_date.strftime("%d/%m/%Y")
+                else:
+                    final_date_end = raw_date_end
+
+                # 6. Création de l'opportunité
                 items.append(build_opportunity(
                     opp_id=opp_id,
                     title=analysis.get("title") or f"{job_title} chez {company}",
                     category=analysis.get("category") or "Emplois / Stages",
                     source=source_label,
                     date_start=datetime.now().strftime("%d/%m/%Y"),
-                    date_end=analysis.get("date_end") or "À déterminer",
+                    # On utilise notre date calculée ici 👇
+                    date_end=final_date_end, 
                     url=job_url,
                     badge_color="blue", 
                     description=analysis.get("summary") or (description[:120] + "..."),
                     image_url=image_url
                 ))
-                print(f"      🎉 LI OCCASION: {job_title} chez {company}")
-    
+                print(f"       🎉 LI OCCASION: {job_title} chez {company} (Fin prévue: {final_date_end})")
+
+
     except Exception as e:
         print(f"❌ Erreur Scraper LinkedIn : {e}")
         traceback.print_exc() # 🟢 NOUVEAU : Va imprimer le chemin exact de l'erreur dans la console
@@ -3808,6 +3736,14 @@ def run_all_scrapers():
             result = scraper()
             if result:
                 ops += result
+
+
+                # 👇 AJOUTE UNE PAUSE ICI
+            print(f"✅ Scraper terminé, pause de sécurité avant le suivant...")
+            import time
+            time.sleep(10) # 10 secondes de repos entre deux sites
+
+
         except Exception as e:
             # Si un scraper plante, on log l'erreur mais on continue avec les autres
             print(f"❌ Erreur dans {scraper.__name__ if hasattr(scraper, '__name__') else 'un scraper'}: {e}")
@@ -4007,101 +3943,6 @@ async def lifespan(app: FastAPI):
 
 
 
-
-# def run_all_scrapers():
-#     """Cette fonction va tourner en arrière-plan sans bloquer le serveur."""
-#     print("🚀 Début du scraping en arrière-plan...")
-    
-#     scrapers = [
-#         scrape_agence_emploi_jeunes,
-#         scrape_linkedin_jobs,
-#         scrape_faci,
-#         scrape_ens,
-#         scrape_cafop,
-#         scrape_facebook_pages,
-#         scrape_ena_directs,
-#         scrape_infas,
-#         scrape_minef_concours,
-#         scrape_devpost_hackathons,
-#         scrape_novojob,
-#         scrape_daad_scholarship,
-#         scrape_educarriere,
-#         scrape_educarriere_formations,
-#         scrape_kaggle_competitions,
-#         scrape_option_carriere,
-#         scrape_projob_ivoire,
-#         scrape_sociumjob,
-#     ]
-
-#     ops = []
-#     for scraper in scrapers:
-#         try:
-#             # On exécute le scraper et on ajoute les résultats à la liste globale
-#             result = scraper()
-#             if result:
-#                 ops += result
-#         except Exception as e:
-#             # Si un scraper plante, on log l'erreur mais on continue avec les autres
-#             print(f"❌ Erreur dans {scraper.__name__ if hasattr(scraper, '__name__') else 'un scraper'}: {e}")
-#             continue
-
-#     added, updated = 0, 0
-#     for opp in ops:
-#         try:
-#             # On vérifie que le scraper a bien renvoyé un ID
-#             if not opp.get("id"):
-#                 print(f"⚠️ Opportunité ignorée car pas d'ID : {opp.get('title', 'Sans titre')}")
-#                 continue
-
-#             doc_ref = db.collection("opportunities").document(str(opp["id"]))
-#             doc = doc_ref.get()
-
-#             opp_to_write = dict(opp)
-#             opp_to_write["createdAt"] = firestore.SERVER_TIMESTAMP
-
-#             if "seenBy" not in opp_to_write:
-#                 opp_to_write["seenBy"] = []
-
-#             if doc.exists:
-#                 doc_ref.set(opp_to_write, merge=True)
-#                 updated += 1
-#             else:
-#                 opp_to_write["isNew"] = True
-#                 opp_to_write["notified"] = False
-#                 doc_ref.set(opp_to_write)
-#                 added += 1
-
-#                 # 👇 C'EST EXACTEMENT ICI QU'ON MET À JOUR L'APPEL 👇
-#                 try:
-#                     notify_users_by_interest(
-#                         opportunity_id=str(opp["id"]), 
-#                         opportunity_title=opp.get("title", "Nouvelle opportunité"), 
-#                         category=opp.get("category", "Général"),
-#                         source=opp.get("source", ""),       # 👈 AJOUT DE LA SOURCE POUR L'EXCEPTION KAGGLE
-#                         date_end=opp.get("date_end", None)  # 👈 AJOUT DE LA DATE DE FIN POUR LE FILTRE D'EXPIRATION
-#                     )
-#                 except Exception as notif_error:
-#                     print(f"⚠️ Erreur lors de l'envoi des notifs ciblées pour {opp['id']}: {notif_error}")
-#                 # 👆 FIN DE L'AJOUT 👆
-
-#         except Exception as e:
-#             print(f"⚠️ Firestore error for opp {opp.get('id', 'inconnu')}: {e}")
-#             continue
-
-#     # 🧹 --- NOUVEAU : NETTOYAGE DES OPPORTUNITÉS EXPIRÉES --- 🧹
-#     deleted_count = 0
-#     try:
-#         print("🧹 Lancement du nettoyage des opportunités expirées...")
-#         deleted_count = delete_expired_opportunities()
-#         print(f"✅ Nettoyage terminé : {deleted_count} opportunités supprimées.")
-#     except Exception as e:
-#         print(f"❌ Erreur lors de la suppression des opportunités expirées : {e}")
-#     # --------------------------------------------------------
-
-#     # On affiche le bilan final dans la console du serveur
-#     print(f"🎉 Bilan final du scraping : {added} ajoutés, {updated} mis à jour, {deleted_count} supprimés sur {len(ops)} trouvés.")
-
-
 @app.get("/scrape")
 def scrape_opportunities_endpoint(background_tasks: BackgroundTasks):
     """
@@ -4117,105 +3958,6 @@ def scrape_opportunities_endpoint(background_tasks: BackgroundTasks):
     }
 
 
-
-# # ---------- ROUTE SCRAP ----------
-# @app.get("/scrape")
-# def scrape_opportunities():
-#     scrapers = [
-#         scrape_agence_emploi_jeunes,
-#         scrape_linkedin_jobs,
-#         scrape_faci,
-#         scrape_ens,
-#         scrape_cafop,
-#         scrape_facebook_pages,
-#         scrape_ena_directs,
-#         scrape_infas,
-#         scrape_minef_concours,
-#         scrape_devpost_hackathons,
-#         scrape_novojob,
-#         scrape_daad_scholarship,
-#         scrape_educarriere,
-#         scrape_educarriere_formations,
-#         scrape_kaggle_competitions,
-#         scrape_option_carriere,
-#         scrape_projob_ivoire,
-#         scrape_sociumjob,
-#     ]
-
-#     ops = []
-#     for scraper in scrapers:
-#         try:
-#             # On exécute le scraper et on ajoute les résultats à la liste globale
-#             result = scraper()
-#             if result:
-#                 ops += result
-#         except Exception as e:
-#             # Si un scraper plante, on log l'erreur mais on continue avec les autres
-#             print(f"❌ Erreur dans {scraper.__name__ if hasattr(scraper, '__name__') else 'un scraper'}: {e}")
-#             continue
-
-#     added, updated = 0, 0
-#     for opp in ops:
-#         try:
-#             # On vérifie que le scraper a bien renvoyé un ID
-#             if not opp.get("id"):
-#                 print(f"⚠️ Opportunité ignorée car pas d'ID : {opp.get('title', 'Sans titre')}")
-#                 continue
-
-#             doc_ref = db.collection("opportunities").document(str(opp["id"]))
-#             doc = doc_ref.get()
-
-#             opp_to_write = dict(opp)
-#             opp_to_write["createdAt"] = firestore.SERVER_TIMESTAMP
-
-#             if "seenBy" not in opp_to_write:
-#                 opp_to_write["seenBy"] = []
-
-#             if doc.exists:
-#                 doc_ref.set(opp_to_write, merge=True)
-#                 updated += 1
-#             else:
-#                 opp_to_write["isNew"] = True
-#                 opp_to_write["notified"] = False
-#                 doc_ref.set(opp_to_write)
-#                 added += 1
-
-#                 # 👇 C'EST EXACTEMENT ICI QU'ON MET À JOUR L'APPEL 👇
-#                 # On ajoute bien 'source' et 'date_end' avec .get() par sécurité
-#                 try:
-#                     notify_users_by_interest(
-#                         opportunity_id=str(opp["id"]), 
-#                         opportunity_title=opp.get("title", "Nouvelle opportunité"), 
-#                         category=opp.get("category", "Général"),
-#                         source=opp.get("source", ""),       # 👈 AJOUT DE LA SOURCE POUR L'EXCEPTION KAGGLE
-#                         date_end=opp.get("date_end", None)  # 👈 AJOUT DE LA DATE DE FIN POUR LE FILTRE D'EXPIRATION
-#                     )
-#                 except Exception as notif_error:
-#                     print(f"⚠️ Erreur lors de l'envoi des notifs ciblées pour {opp['id']}: {notif_error}")
-#                 # 👆 FIN DE L'AJOUT 👆
-
-#         except Exception as e:
-#             print(f"⚠️ Firestore error for opp {opp.get('id', 'inconnu')}: {e}")
-#             continue
-
-#     # 🧹 --- NOUVEAU : NETTOYAGE DES OPPORTUNITÉS EXPIRÉES --- 🧹
-#     deleted_count = 0
-#     try:
-#         print("🧹 Lancement du nettoyage des opportunités expirées...")
-#         deleted_count = delete_expired_opportunities()
-#         print(f"✅ Nettoyage terminé : {deleted_count} opportunités supprimées.")
-#     except Exception as e:
-#         print(f"❌ Erreur lors de la suppression des opportunités expirées : {e}")
-#     # --------------------------------------------------------
-
-#     return {
-#         "message": "Scraping et nettoyage terminés",
-#         "ajoutés": added,
-#         "mis_à_jour": updated,
-#         "supprimés": deleted_count,  # <--- Le total des suppressions apparaît ici !
-#         "total_scrappés": len(ops)
-#     }
-    
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
