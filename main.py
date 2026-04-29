@@ -756,6 +756,7 @@ async def notify_new_announcement(
             data={
                 "type": "new_announcement",
                 "opportunity_id": opportunity_id,
+                "screen": "/notifications",
                 "click_action": "FLUTTER_NOTIFICATION_CLICK"
             }
         )
