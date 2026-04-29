@@ -736,6 +736,7 @@ async def apply_for_job(
 
 
 
+
 # @app.post("/notify-new-announcement")
 # async def notify_new_announcement(
 #     company_name: str = Body(...),
@@ -744,30 +745,58 @@ async def apply_for_job(
 #     opportunity_id: str = Body(...)
 # ):
 #     try:
-#         # 1. On prépare le message
-#         notif_title = f"Nouvelle opportunité : {category} ! 🚀"
-#         notif_body = f"{company_name} vient de publier : {title}. Postulez vite !"
+#         # On harmonise les titres/messages comme dans ton exemple "Interests"
+#         notif_title = f"Nouvelle opportunité : {category}"
+#         notif_message = title  # Le titre de l'annonce sert de corps de message
 
-#         # 2. On envoie à tous les particuliers via le Topic
+#         # --- 1. ENVOI DU PUSH (Topic FCM) ---
+#         # On utilise le Topic pour la rapidité du push
 #         send_push_to_topic(
 #             topic="particuliers",
 #             title=notif_title,
-#             body=notif_body,
+#             body=f"{company_name} a publié : {notif_message}", # Texte plus complet pour le push
 #             data={
-#                 "type": "new_announcement",
-#                 "opportunity_id": opportunity_id,
-#                 "screen": "/notifications",
-#                 "click_action": "FLUTTER_NOTIFICATION_CLICK"
+#                 "type": "opportunity",
+#                 "opportunityId": str(opportunity_id).strip(),
+#                 "screen": "/notifications"
 #             }
 #         )
 
-#         return {"status": "success", "message": "Notification envoyée aux particuliers"}
+#         # --- 2. SAUVEGARDE DANS FIRESTORE (Batch) ---
+#         # On cible uniquement les particuliers
+#         users_ref = db.collection('users').where('role', '==', 'particulier').stream()
+
+#         batch = db.batch()
+#         count = 0
+
+#         for user in users_ref:
+#             # Structure EXACTEMENT identique à ton exemple notify_users_by_interest
+#             notif_ref = db.collection('users').document(user.id).collection('notifications').document()
+            
+#             batch.set(notif_ref, {
+#                 "title": notif_title,
+#                 "message": notif_message, # <--- Changé 'body' en 'message' pour matcher ton exemple
+#                 "createdAt": firestore.SERVER_TIMESTAMP,
+#                 "isRead": False,
+#                 "type": "opportunity",
+#                 "opportunityId": str(opportunity_id)
+#             })
+            
+#             count += 1
+#             if count >= 500:
+#                 batch.commit()
+#                 batch = db.batch()
+#                 count = 0
+        
+#         if count > 0:
+#             batch.commit()
+
+#         print(f"✅ Notification entreprise sauvegardée pour {count} particuliers.")
+#         return {"status": "success", "message": "Notification envoyée et enregistrée."}
+
 #     except Exception as e:
+#         print(f"❌ Erreur lors de la notification globale: {e}")
 #         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-
-
 
 
 @app.post("/notify-new-announcement")
@@ -778,44 +807,30 @@ async def notify_new_announcement(
     opportunity_id: str = Body(...)
 ):
     try:
-        # On harmonise les titres/messages comme dans ton exemple "Interests"
         notif_title = f"Nouvelle opportunité : {category}"
-        notif_message = title  # Le titre de l'annonce sert de corps de message
+        notif_message = title 
+        clean_id = str(opportunity_id).strip() # On nettoie l'ID une seule fois
 
-        # --- 1. ENVOI DU PUSH (Topic FCM) ---
-        # On utilise le Topic pour la rapidité du push
-        send_push_to_topic(
-            topic="particuliers",
-            title=notif_title,
-            body=f"{company_name} a publié : {notif_message}", # Texte plus complet pour le push
-            data={
-                "type": "opportunity",
-                "opportunityId": str(opportunity_id),
-                "screen": "/notifications"
-            }
-        )
-
-        # --- 2. SAUVEGARDE DANS FIRESTORE (Batch) ---
-        # On cible uniquement les particuliers
+        # --- 1. SAUVEGARDE DANS FIRESTORE D'ABORD ---
+        # Comme ça, quand le push arrive, les données sont déjà prêtes
         users_ref = db.collection('users').where('role', '==', 'particulier').stream()
-
         batch = db.batch()
         count = 0
+        total_saved = 0
 
         for user in users_ref:
-            # Structure EXACTEMENT identique à ton exemple notify_users_by_interest
             notif_ref = db.collection('users').document(user.id).collection('notifications').document()
-            
             batch.set(notif_ref, {
                 "title": notif_title,
-                "message": notif_message, # <--- Changé 'body' en 'message' pour matcher ton exemple
+                "message": notif_message,
                 "createdAt": firestore.SERVER_TIMESTAMP,
                 "isRead": False,
                 "type": "opportunity",
-                "opportunityId": str(opportunity_id)
+                "opportunityId": clean_id
             })
             
             count += 1
+            total_saved += 1
             if count >= 500:
                 batch.commit()
                 batch = db.batch()
@@ -824,13 +839,24 @@ async def notify_new_announcement(
         if count > 0:
             batch.commit()
 
-        print(f"✅ Notification entreprise sauvegardée pour {count} particuliers.")
+        # --- 2. ENVOI DU PUSH (SEULEMENT APRÈS LE COMMIT) ---
+        send_push_to_topic(
+            topic="particuliers",
+            title=notif_title,
+            body=f"{company_name} a publié : {notif_message}",
+            data={
+                "type": "opportunity",
+                "opportunityId": clean_id, # Utilisation de l'ID nettoyé
+                "screen": "/notifications"
+            }
+        )
+
+        print(f"✅ Notification sauvegardée pour {total_saved} particuliers et push envoyé.")
         return {"status": "success", "message": "Notification envoyée et enregistrée."}
 
     except Exception as e:
         print(f"❌ Erreur lors de la notification globale: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
 
 
 
