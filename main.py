@@ -812,12 +812,20 @@ async def trigger_chat_notification(payload: ChatNotificationModel):
         receiver_id = ""
         notification_title = ""
 
-        # Si l'expéditeur est l'entreprise
+
+
         if payload.sender_id == app_data.get('companyId'):
             receiver_id = app_data.get('applicantId')
-            # On cherche 'companyName', sinon 'username', sinon on met 'inconnue'
-            company_name = app_data.get('companyName', app_data.get('username', "inconnue"))
-            # 💡 NOUVEAU : On ajoute "l'entreprise" devant pour faire la différence
+
+            # 🔥 Aller chercher l'entreprise dans users
+            company_doc = db.collection("users").document(payload.sender_id).get()
+
+            if company_doc.exists:
+                company_data = company_doc.to_dict()
+                company_name = company_data.get('username', "inconnue")
+            else:
+                company_name = "inconnue"
+
             notification_title = f"Nouveau message de l'entreprise {company_name}"
             
         # Si l'expéditeur est le candidat
