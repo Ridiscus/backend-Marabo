@@ -744,6 +744,56 @@ class ChatNotificationModel(BaseModel):
     sender_id: str
     message_text: str
 
+# @app.post("/notify-chat")
+# async def trigger_chat_notification(payload: ChatNotificationModel):
+#     """
+#     Route appelée par Flutter après l'envoi d'un message 
+#     pour déclencher la notification Push.
+#     """
+#     try:
+#         # 1. Récupérer les infos de la candidature pour identifier les acteurs
+#         app_doc = db.collection('applications').document(payload.application_id).get()
+#         if not app_doc.exists:
+#             return JSONResponse({"status": "error", "message": "Candidature introuvable"}, status_code=404)
+        
+#         app_data = app_doc.to_dict()
+
+#         # 2. Déterminer qui est le destinataire et le nom de l'expéditeur
+#         receiver_id = ""
+#         sender_name = ""
+
+#         # Si l'expéditeur est l'entreprise
+#         if payload.sender_id == app_data.get('companyId'):
+#             receiver_id = app_data.get('applicantId')
+#             sender_name = app_data.get('username', "L'entreprise")
+#         # Si l'expéditeur est le candidat
+#         else:
+#             receiver_id = app_data.get('companyId')
+#             sender_name = app_data.get('applicantName', "Un candidat")
+
+#         # 3. Raccourcir le texte pour la notification (esthétique)
+#         short_msg = payload.message_text
+#         if len(short_msg) > 50:
+#             short_msg = short_msg[:47] + "..."
+
+#         # 4. Envoyer le Push en utilisant TA fonction existante ! 🚀
+#         send_push_to_user(
+#             user_id=receiver_id,
+#             title=f"Nouveau message de {sender_name}",
+#             body=short_msg,
+#             data={
+#                 "type": "chat",
+#                 "applicationId": payload.application_id
+#             }
+#         )
+
+#         return {"status": "success", "message": "Notification envoyée"}
+
+#     except Exception as e:
+#         print(f"Erreur notification chat: {e}")
+#         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 @app.post("/notify-chat")
 async def trigger_chat_notification(payload: ChatNotificationModel):
     """
@@ -758,18 +808,24 @@ async def trigger_chat_notification(payload: ChatNotificationModel):
         
         app_data = app_doc.to_dict()
 
-        # 2. Déterminer qui est le destinataire et le nom de l'expéditeur
+        # 2. Déterminer qui est le destinataire et formater le titre de la notification
         receiver_id = ""
-        sender_name = ""
+        notification_title = ""
 
         # Si l'expéditeur est l'entreprise
         if payload.sender_id == app_data.get('companyId'):
             receiver_id = app_data.get('applicantId')
-            sender_name = app_data.get('companyName', "L'entreprise")
+            # On cherche 'companyName', sinon 'username', sinon on met 'inconnue'
+            company_name = app_data.get('companyName', app_data.get('username', "inconnue"))
+            # 💡 NOUVEAU : On ajoute "l'entreprise" devant pour faire la différence
+            notification_title = f"Nouveau message de l'entreprise {company_name}"
+            
         # Si l'expéditeur est le candidat
         else:
             receiver_id = app_data.get('companyId')
-            sender_name = app_data.get('applicantName', "Un candidat")
+            applicant_name = app_data.get('applicantName', "Un candidat")
+            # 💡 On garde un format classique pour les particuliers
+            notification_title = f"Nouveau message de {applicant_name}"
 
         # 3. Raccourcir le texte pour la notification (esthétique)
         short_msg = payload.message_text
@@ -779,7 +835,7 @@ async def trigger_chat_notification(payload: ChatNotificationModel):
         # 4. Envoyer le Push en utilisant TA fonction existante ! 🚀
         send_push_to_user(
             user_id=receiver_id,
-            title=f"Nouveau message de {sender_name}",
+            title=notification_title,
             body=short_msg,
             data={
                 "type": "chat",
@@ -792,9 +848,6 @@ async def trigger_chat_notification(payload: ChatNotificationModel):
     except Exception as e:
         print(f"Erreur notification chat: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-
 
 
 
