@@ -794,53 +794,116 @@ class ChatNotificationModel(BaseModel):
 #         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+# @app.post("/notify-chat")
+# async def trigger_chat_notification(payload: ChatNotificationModel):
+#     """
+#     Route appelée par Flutter après l'envoi d'un message 
+#     pour déclencher la notification Push.
+#     """
+#     try:
+#         # 1. Récupérer les infos de la candidature pour identifier les acteurs
+#         app_doc = db.collection('applications').document(payload.application_id).get()
+#         if not app_doc.exists:
+#             return JSONResponse({"status": "error", "message": "Candidature introuvable"}, status_code=404)
+        
+#         app_data = app_doc.to_dict()
+
+#         # 2. Déterminer qui est le destinataire et formater le titre de la notification
+#         receiver_id = ""
+#         notification_title = ""
+
+
+
+#         if payload.sender_id == app_data.get('companyId'):
+#             receiver_id = app_data.get('applicantId')
+
+#             # 🔥 Aller chercher l'entreprise dans users
+#             company_doc = db.collection("users").document(payload.sender_id).get()
+
+#             if company_doc.exists:
+#                 company_data = company_doc.to_dict()
+#                 company_name = company_data.get('username', "inconnue")
+#             else:
+#                 company_name = "inconnue"
+
+#             notification_title = f"Nouveau message de l'entreprise {company_name}"
+            
+#         # Si l'expéditeur est le candidat
+#         else:
+#             receiver_id = app_data.get('companyId')
+#             applicant_name = app_data.get('applicantName', "Un candidat")
+#             # 💡 On garde un format classique pour les particuliers
+#             notification_title = f"Nouveau message de {applicant_name}"
+
+#         # 3. Raccourcir le texte pour la notification (esthétique)
+#         short_msg = payload.message_text
+#         if len(short_msg) > 50:
+#             short_msg = short_msg[:47] + "..."
+
+#         # 4. Envoyer le Push en utilisant TA fonction existante ! 🚀
+#         send_push_to_user(
+#             user_id=receiver_id,
+#             title=notification_title,
+#             body=short_msg,
+#             data={
+#                 "type": "chat",
+#                 "applicationId": payload.application_id
+#             }
+#         )
+
+#         return {"status": "success", "message": "Notification envoyée"}
+
+#     except Exception as e:
+#         print(f"Erreur notification chat: {e}")
+#         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+
+
+
 @app.post("/notify-chat")
 async def trigger_chat_notification(payload: ChatNotificationModel):
     """
-    Route appelée par Flutter après l'envoi d'un message 
-    pour déclencher la notification Push.
+    Déclenche le Push avec distinction Entreprise / Candidat.
     """
     try:
-        # 1. Récupérer les infos de la candidature pour identifier les acteurs
+        # 1. Récupérer les infos de la candidature
         app_doc = db.collection('applications').document(payload.application_id).get()
         if not app_doc.exists:
             return JSONResponse({"status": "error", "message": "Candidature introuvable"}, status_code=404)
         
         app_data = app_doc.to_dict()
 
-        # 2. Déterminer qui est le destinataire et formater le titre de la notification
         receiver_id = ""
         notification_title = ""
 
-
-
+        # --- CAS : L'expéditeur est l'ENTREPRISE ---
         if payload.sender_id == app_data.get('companyId'):
             receiver_id = app_data.get('applicantId')
 
-            # 🔥 Aller chercher l'entreprise dans users
+            # On récupère le nom dans la collection 'users'
             company_doc = db.collection("users").document(payload.sender_id).get()
-
+            
             if company_doc.exists:
                 company_data = company_doc.to_dict()
-                company_name = company_data.get('username', "inconnue")
+                # On cherche 'username' ou 'companyName'
+                name = company_data.get('username') or company_data.get('companyName') or "Marabo"
+                notification_title = f"Nouveau message de l'entreprise {name}"
             else:
-                company_name = "inconnue"
+                notification_title = "Nouveau message de l'entreprise"
 
-            notification_title = f"Nouveau message de l'entreprise {company_name}"
-            
-        # Si l'expéditeur est le candidat
+        # --- CAS : L'expéditeur est le CANDIDAT ---
         else:
             receiver_id = app_data.get('companyId')
             applicant_name = app_data.get('applicantName', "Un candidat")
-            # 💡 On garde un format classique pour les particuliers
             notification_title = f"Nouveau message de {applicant_name}"
 
-        # 3. Raccourcir le texte pour la notification (esthétique)
+        # 2. Préparation du texte (le message_text contient déjà "📷 Photo" si c'est une image)
         short_msg = payload.message_text
-        if len(short_msg) > 50:
-            short_msg = short_msg[:47] + "..."
+        if len(short_msg) > 60:
+            short_msg = short_msg[:57] + "..."
 
-        # 4. Envoyer le Push en utilisant TA fonction existante ! 🚀
+        # 3. Envoi du Push
         send_push_to_user(
             user_id=receiver_id,
             title=notification_title,
@@ -856,7 +919,6 @@ async def trigger_chat_notification(payload: ChatNotificationModel):
     except Exception as e:
         print(f"Erreur notification chat: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
 
 
 
