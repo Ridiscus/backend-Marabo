@@ -3421,6 +3421,32 @@ def scrape_linkedin_jobs():
     return items
 
 
+def delete_all_linkedin_jobs_from_db():
+    """
+    Fonction temporaire (One-off) pour nettoyer la base de données 
+    de toutes les opportunités provenant de LinkedIn.
+    """
+    print("🧹 Début du nettoyage des anciens jobs LinkedIn dans Firestore...")
+    deleted_count = 0
+    try:
+        # On parcourt toute la collection opportunities
+        docs = db.collection("opportunities").stream()
+        
+        for doc in docs:
+            data = doc.to_dict()
+            source = data.get("source", "")
+            
+            # Si le mot "LinkedIn" est dans la source, on supprime le document
+            if "LinkedIn" in str(source):
+                doc.reference.delete()
+                deleted_count += 1
+                # print(f"🗑️ Supprimé : {data.get('title')} ({source})") # Optionnel : pour voir ce qui est supprimé
+                
+        print(f"✅ Nettoyage terminé ! {deleted_count} jobs LinkedIn ont été définitivement supprimés.")
+    except Exception as e:
+        print(f"❌ Erreur lors du nettoyage de la base de données : {e}")
+
+
 @app.get("/scrape/linkedin")
 def trigger_linkedin_scrape():
     print("🚀 Lancement manuel du scraper LinkedIn...")
@@ -3989,7 +4015,7 @@ def run_all_scrapers():
     
     scrapers = [
         scrape_agence_emploi_jeunes,
-        scrape_linkedin_jobs,
+        #scrape_linkedin_jobs,
         scrape_faci,
         scrape_ens,
         scrape_cafop,
@@ -4087,6 +4113,10 @@ def run_all_scrapers():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Démarrage du serveur et du planificateur de tâches...")
+
+     # 👇 AJOUT TEMPORAIRE : On lance le nettoyage au démarrage
+    delete_all_linkedin_jobs_from_db()
+    # 👆 Tu pourras retirer cette ligne lors de ton prochain déploiement
     
     scheduler = BackgroundScheduler()
     
