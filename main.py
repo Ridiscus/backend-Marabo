@@ -3447,6 +3447,38 @@ def delete_all_linkedin_jobs_from_db():
         print(f"❌ Erreur lors du nettoyage de la base de données : {e}")
 
 
+
+@app.get("/clean-linkedin")
+def force_clean_linkedin():
+    """
+    Route temporaire pour forcer la suppression des jobs LinkedIn de la base de données.
+    À visiter depuis le navigateur : https://ton-url-render.com/clean-linkedin
+    """
+    print("🧹 Appel manuel du nettoyage LinkedIn...")
+    deleted_count = 0
+    try:
+        # On récupère toutes les opportunités
+        docs = db.collection("opportunities").stream()
+        
+        for doc in docs:
+            data = doc.to_dict()
+            source = data.get("source", "")
+            
+            # Si la source contient "LinkedIn", on supprime !
+            if "LinkedIn" in str(source):
+                doc.reference.delete()
+                deleted_count += 1
+                
+        print(f"✅ Succès : {deleted_count} supprimés.")
+        return {
+            "status": "success", 
+            "message": f"Nettoyage terminé ! {deleted_count} jobs LinkedIn ont été supprimés de la base de données."
+        }
+    except Exception as e:
+        print(f"❌ Erreur lors du nettoyage : {e}")
+        return {"status": "error", "message": f"Une erreur est survenue : {str(e)}"}
+
+
 @app.get("/scrape/linkedin")
 def trigger_linkedin_scrape():
     print("🚀 Lancement manuel du scraper LinkedIn...")
@@ -4115,7 +4147,7 @@ async def lifespan(app: FastAPI):
     print("Démarrage du serveur et du planificateur de tâches...")
 
      # 👇 AJOUT TEMPORAIRE : On lance le nettoyage au démarrage
-    delete_all_linkedin_jobs_from_db()
+    #delete_all_linkedin_jobs_from_db()
     # 👆 Tu pourras retirer cette ligne lors de ton prochain déploiement
     
     scheduler = BackgroundScheduler()
