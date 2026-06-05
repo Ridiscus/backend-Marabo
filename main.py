@@ -2577,7 +2577,6 @@ import json
 from datetime import datetime, timedelta
 
 def scrape_agence_emploi_jeunes(max_pages_per_city=3):
-    # 🔴 Tes URLs avec les bonnes agences régionales (villes)
     VILLES_URLS = {
         "Bouaké": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=10",
         # Ajoute les autres villes ici...
@@ -2590,7 +2589,7 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
 
-    print("🔵 Démarrage du scraping AEJ avec Pagination corrigée...")
+    print("🔵 Démarrage du scraping AEJ avec Corrections Dates et Localité...")
 
     for ville, base_url in VILLES_URLS.items():
         print(f"   📍 Recherche à {ville}...")
@@ -2599,28 +2598,23 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
         last_page = 1 
         
         while current_page <= last_page and current_page <= max_pages_per_city:
-            # On n'ajoute &page= que si on dépasse la page 1 pour éviter de perturber le site
             if current_page == 1:
                 url = base_url
             else:
                 url = f"{base_url}&page={current_page}" if "?" in base_url else f"{base_url}?page={current_page}"
                 
-            print(f"      📄 Scraping de la page {current_page}...")
-            
             try:
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                 resp = requests.get(url, headers=headers, timeout=15, verify=False)
                 resp.raise_for_status()
             except requests.exceptions.RequestException as e:
-                print(f"      [ERREUR] Impossible d'accéder à {url} : {e}")
                 break 
 
             soup = BeautifulSoup(resp.text, "html.parser")
             app_div = soup.find("div", id="app")
 
             if not app_div or not app_div.has_attr("data-page"):
-                print(f"      ⚠️ Impossible de trouver les données sur la page {current_page}.")
                 break
                 
             try:
@@ -2628,15 +2622,11 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
                 props = page_data.get("props", {})
                 
                 offres_brutes = []
-                
-                # Récupération robuste (comme dans ton ancien code)
                 if "offres" in props:
                     if isinstance(props["offres"], dict) and "data" in props["offres"]:
                         offres_brutes = props["offres"]["data"]
-                        # Mise à jour de la dernière page
                         if current_page == 1:
                             last_page = props["offres"].get("last_page", 1)
-                            print(f"      ℹ️ {last_page} page(s) trouvée(s) pour {ville}.")
                     elif isinstance(props["offres"], list):
                         offres_brutes = props["offres"]
                 
@@ -2644,22 +2634,17 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
                     break 
                 
                 for offer in offres_brutes:
-                    try: # 🟢 LE TRY EST ICI : Si UNE offre plante, les autres continuent
-                        # 1. Extraction directe et propre (Avec les variables de secours !)
+                    try:
                         title = str(offer.get("titre") or offer.get("intitule") or "Titre non spécifié")
-                        
-                        # 2. Reconstitution du lien
                         reference = str(offer.get("reference") or offer.get("id") or "")
                         job_url = f"https://agenceemploijeunes.ci/offres-emploi/{reference}" if reference else url
                         
-                        # 3. Entreprise
                         company = "Agence Emploi Jeunes"
                         if isinstance(offer.get("entreprise"), dict):
                             company = offer.get("entreprise").get("nom", company)
                         elif offer.get("nom_entreprise"):
                             company = offer.get("nom_entreprise")
                         
-                        # 4. Catégorie
                         category = "Emplois"
                         type_contrat = ""
                         tc_obj = offer.get("type_contrat")
@@ -2672,30 +2657,32 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
                             category = "Stages"
                         elif "formation" in type_contrat.lower():
                             category = "Formations"
-                        
-                        # 5. Dates
+# --- 🟢 CORRECTION DES DATES (Scanner agressif) ---
                         date_start = datetime.today().strftime("%d/%m/%Y")
-                        created_at = offer.get("created_at")
-                        if created_at and len(str(created_at)) >= 10:
-                            try:
-                                date_start = datetime.strptime(str(created_at)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
-                            except Exception: pass
+                        for k in ["created_at", "createdAt", "date_publication", "date_creation", "published_at"]:
+                            val = offer.get(k)
+                            if val and isinstance(val, str) and len(val) >= 10:
+                                try:
+                                    date_start = datetime.strptime(val[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                                    break
+                                except: pass
 
-                        date_limite = offer.get("date_limite") or offer.get("date_cloture")
                         date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
-                        if date_limite and len(str(date_limite)) >= 10:
-                            try:
-                                date_end = datetime.strptime(str(date_limite)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
-                            except Exception: pass
+                        for k in ["date_cloture", "dateCloture", "date_limite", "dateLimite", "date_fin", "dateFin", "deadline", "expires_at"]:
+                            val = offer.get(k)
+                            if val and isinstance(val, str) and len(val) >= 10:
+                                try:
+                                    date_end = datetime.strptime(val[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                                    break
+                                except: pass
+                        # --------------------------------------------------
 
-                        # 6. Description (avec la ville remise ici !)
                         full_description = f"Entreprise: {company}\nLieu: {ville}\nType de contrat: {type_contrat}"
                         desc_texte = offer.get("description") or offer.get("profil_recherche")
                         if desc_texte:
                             clean_desc = BeautifulSoup(str(desc_texte), "html.parser").get_text(separator=" ", strip=True)
                             full_description += f"\nDescription: {clean_desc[:200]}..."
 
-                        # 7. Création de l'opportunité
                         opp_id = str(generate_numeric_id(title, job_url))
                         source_name = "Agence Emploi Jeunes"
 
@@ -2704,8 +2691,8 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
                         except Exception:
                             pass
 
-                        # 🟢 RETRAIT de 'location=ville' pour éviter de faire planter ta fonction existante
-                        items.append(build_opportunity(
+                        # 1. On utilise ta fonction normalement
+                        opp = build_opportunity(
                             opp_id=opp_id,
                             title=title,
                             category=category,
@@ -2715,7 +2702,14 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
                             url=job_url,
                             badge_color="green",
                             description=full_description
-                        ))
+                        )
+
+                        # --- 🟢 CORRECTION DE LA VILLE (Écrase "Côte d'Ivoire") ---
+                        if isinstance(opp, dict):
+                            opp["location"] = ville
+                        # ----------------------------------------------------------
+
+                        items.append(opp)
                     except Exception as e:
                         print(f"      ⚠️ Erreur sur une offre spécifique (ignorée) : {e}")
                         continue
@@ -2723,12 +2717,10 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
             except Exception as e:
                 print(f"      ⚠️ Erreur globale lors du traitement de la page {current_page} : {e}")
             
-            # On incrémente pour passer à la page suivante
             current_page += 1
 
     print(f"✅ AEJ terminé : {len(items)} offres récupérées au total.")
     return items
-
 
 
 
