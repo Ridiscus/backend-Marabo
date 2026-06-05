@@ -2608,6 +2608,23 @@ def trigger_aej_scrape():
 
 
 
+from fastapi.responses import HTMLResponse
+
+@app.get("/debug/aej", response_class=HTMLResponse)
+def debug_aej():
+    """Cette route va nous montrer ce que le robot Python voit réellement"""
+    import requests
+    url = "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=10"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=15, verify=False)
+        return resp.text # On renvoie directement le code source brut reçu par Python
+    except Exception as e:
+        return f"Erreur de connexion : {e}"
+
 
 # désactiver les warnings SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
