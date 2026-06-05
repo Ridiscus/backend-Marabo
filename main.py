@@ -2580,6 +2580,12 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
     VILLES_URLS = {
         "Bouaké": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=10",
         "Aboisso": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=3",
+        "Adjamé": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=4",
+        "Koumassi": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=22",
+        "Katiola": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=20",
+        "San-Pédro": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=27",
+        "Guiglo": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=19",
+        "Korhogo": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=21",
         # Ajoute les autres villes ici...
     }
 
