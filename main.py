@@ -2586,6 +2586,16 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
         "San-Pédro": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=27",
         "Guiglo": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=19",
         "Korhogo": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=21",
+        "Gagnoa": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=18",
+        "Béoumi": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=6",
+        "Bongouanou": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=8",
+        "Abobo": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=2",
+        "Daloa": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=12",
+        "Man": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=23",
+        "Bondoukou": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=7",
+        "Ferkéssédougou": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=17",
+        "Yopougon": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=33",
+        "Boundiali": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=11",
         # Ajoute les autres villes ici...
     }
 
