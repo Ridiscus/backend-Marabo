@@ -2581,7 +2581,7 @@ def scrape_agence_emploi_jeunes(max_pages_per_city=3):
     # 🔴 Tes URLs avec les bonnes agences régionales (villes)
     VILLES_URLS = {
         "Bouaké": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=10",
-        "Abidjan": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=1", # À vérifier si c'est la bonne agence pour Abidjan
+         # À vérifier si c'est la bonne agence pour Abidjan
         # Ajoute les autres villes ici...
     }
 
