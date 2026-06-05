@@ -2438,116 +2438,251 @@ def scrape_educarriere(max_pages: int = 1):
 
 
 
+# def scrape_agence_emploi_jeunes():
+#     # 🔴 À TOI DE REMPLIR CE DICTIONNAIRE 🔴
+#     # Va sur le site, clique sur chaque ville, et copie-colle l'URL exacte ici :
+#     VILLES_URLS = {
+#         "Bouaké": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=10", # <-- Remplace par la VRAIE url de Bouaké
+#          # <-- Remplace par la VRAIE url d'Abidjan
+#         # Ajoute Yamoussoukro, Daloa, San-Pedro, etc...
+#     }
+
+#     items = []
+#     headers = {
+#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+#         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+#     }
+
+#     # Petit dictionnaire pour traduire les mois en français vers un format chiffré
+#     MOIS_FR = {
+#         "janv.": "01", "janvier": "01", "févr.": "02", "février": "02",
+#         "mars": "03", "avr.": "04", "avril": "04", "mai": "05",
+#         "juin": "06", "juil.": "07", "juillet": "07", "août": "08",
+#         "sept.": "09", "septembre": "09", "oct.": "10", "octobre": "10",
+#         "nov.": "11", "novembre": "11", "déc.": "12", "décembre": "12"
+#     }
+
+#     def parse_french_date(date_str):
+#         """Convertit '10 juin 2026' en '10/06/2026'"""
+#         try:
+#             date_str = date_str.lower().strip()
+#             parts = date_str.split()
+#             if len(parts) >= 3:
+#                 jour = parts[0].zfill(2)
+#                 mois_texte = parts[1]
+#                 annee = parts[2]
+                
+#                 mois = "12" # par défaut
+#                 for cle, valeur in MOIS_FR.items():
+#                     if cle in mois_texte:
+#                         mois = valeur
+#                         break
+#                 return f"{jour}/{mois}/{annee}"
+#         except Exception:
+#             pass
+#         # Si erreur, on met Date d'aujourd'hui + 30 jours
+#         return (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+#     def normalize_category(cat: str) -> str:
+#         cat = cat.lower()
+#         if "stage" in cat: return "Stages"
+#         elif "formation" in cat: return "Formations"
+#         else: return "Emplois"
+
+#     print("🔵 Démarrage du scraping Agence Emploi Jeunes (Multi-Villes)...")
+
+#     # On boucle sur chaque ville !
+#     for ville, url in VILLES_URLS.items():
+#         print(f"   📍 Recherche des opportunités à {ville}...")
+        
+#         try:
+#             resp = requests.get(url, headers=headers, timeout=15, verify=False)
+#             resp.raise_for_status()
+#         except requests.exceptions.RequestException as e:
+#             print(f"[ERREUR] Impossible d'accéder à {ville} : {e}")
+#             continue
+
+#         soup = BeautifulSoup(resp.text, "html.parser")
+
+#         # Le nouveau sélecteur cible les balises <a> contenant les offres
+#         offers = soup.select("a.group.block")
+        
+#         for offer in offers:
+#             try:
+#                 # 1. URL de l'offre
+#                 job_url = offer.get("href")
+#                 if not job_url: continue
+
+#                 # 2. Titre
+#                 title_tag = offer.select_one("h3")
+#                 title = title_tag.get_text(strip=True) if title_tag else "Titre non spécifié"
+
+#                 # 3. Entreprise (souvent à côté de l'icône de bâtiment)
+#                 company_tag = offer.select_one("span.truncate.font-medium")
+#                 company = company_tag.get_text(strip=True) if company_tag else "Entreprise Inconnue"
+
+#                 # 4. Tags et Catégorie (CDD, FNER, STAGE...)
+#                 tags_spans = offer.select("div.flex-wrap span")
+#                 tags_list = [t.get_text(strip=True) for t in tags_spans]
+#                 tags_str = " ".join(tags_list)
+#                 category = normalize_category(tags_str)
+# # 5. Secteur et Nombre de postes
+#                 details_spans = offer.select("div.space-y-2 span.truncate")
+#                 secteur = details_spans[0].get_text(strip=True) if len(details_spans) > 0 else "Non spécifié"
+#                 postes = details_spans[1].get_text(strip=True) if len(details_spans) > 1 else "1 poste"
+
+#                 # 6. Date limite
+#                 date_tag = offer.select_one("div.border-t div.flex.items-center.gap-1")
+#                 raw_date = date_tag.get_text(strip=True) if date_tag else ""
+#                 date_end = parse_french_date(raw_date)
+#                 date_start = datetime.today().strftime("%d/%m/%Y")
+
+#                 # 7. Description propre
+#                 full_description = f"Entreprise: {company}\nLieu: {ville}\nSecteur: {secteur}\nNombre de places: {postes}\nType: {', '.join(tags_list)}"
+
+#                 # 8. Création de l'objet
+#                 opp_id = str(generate_numeric_id(title, job_url))
+#                 source_name = "Agence Emploi Jeunes"
+
+#                 # Notification système (Si tu as conservé cette fonction)
+#                 try:
+#                     check_and_notify_new_source(source_name)
+#                 except:
+#                     pass
+
+#                 items.append(build_opportunity(
+#                     opp_id=opp_id,
+#                     title=title,
+#                     category=category,
+#                     source=source_name,
+#                     date_start=date_start,
+#                     date_end=date_end,
+#                     url=job_url,
+#                     badge_color="green",
+#                     description=full_description
+#                 ))
+            
+#             except Exception as e:
+#                 print(f"⚠️ Erreur lors de l'extraction d'une offre AEJ: {e}")
+#                 continue
+
+#     print(f"✅ AEJ terminé : {len(items)} offres récupérées au total.")
+#     return items
+
+
+
+import requests
+from bs4 import BeautifulSoup
+import json
+from datetime import datetime, timedelta
+
 def scrape_agence_emploi_jeunes():
-    # 🔴 À TOI DE REMPLIR CE DICTIONNAIRE 🔴
-    # Va sur le site, clique sur chaque ville, et copie-colle l'URL exacte ici :
+    # 🔴 Tes URLs avec les bonnes agences régionales (villes)
     VILLES_URLS = {
-        "Bouaké": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=10", # <-- Remplace par la VRAIE url de Bouaké
-         # <-- Remplace par la VRAIE url d'Abidjan
-        # Ajoute Yamoussoukro, Daloa, San-Pedro, etc...
+        "Bouaké": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=10",
+         # Exemple, à vérifier
+        # Ajoute les autres ici...
     }
 
     items = []
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
 
-    # Petit dictionnaire pour traduire les mois en français vers un format chiffré
-    MOIS_FR = {
-        "janv.": "01", "janvier": "01", "févr.": "02", "février": "02",
-        "mars": "03", "avr.": "04", "avril": "04", "mai": "05",
-        "juin": "06", "juil.": "07", "juillet": "07", "août": "08",
-        "sept.": "09", "septembre": "09", "oct.": "10", "octobre": "10",
-        "nov.": "11", "novembre": "11", "déc.": "12", "décembre": "12"
-    }
+    print("🔵 Démarrage du scraping Agence Emploi Jeunes (Lecture du JSON caché)...")
 
-    def parse_french_date(date_str):
-        """Convertit '10 juin 2026' en '10/06/2026'"""
-        try:
-            date_str = date_str.lower().strip()
-            parts = date_str.split()
-            if len(parts) >= 3:
-                jour = parts[0].zfill(2)
-                mois_texte = parts[1]
-                annee = parts[2]
-                
-                mois = "12" # par défaut
-                for cle, valeur in MOIS_FR.items():
-                    if cle in mois_texte:
-                        mois = valeur
-                        break
-                return f"{jour}/{mois}/{annee}"
-        except Exception:
-            pass
-        # Si erreur, on met Date d'aujourd'hui + 30 jours
-        return (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
-
-    def normalize_category(cat: str) -> str:
-        cat = cat.lower()
-        if "stage" in cat: return "Stages"
-        elif "formation" in cat: return "Formations"
-        else: return "Emplois"
-
-    print("🔵 Démarrage du scraping Agence Emploi Jeunes (Multi-Villes)...")
-
-    # On boucle sur chaque ville !
     for ville, url in VILLES_URLS.items():
         print(f"   📍 Recherche des opportunités à {ville}...")
         
         try:
+            # On désactive temporairement les avertissements SSL si jamais leur site bloque
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
             resp = requests.get(url, headers=headers, timeout=15, verify=False)
             resp.raise_for_status()
         except requests.exceptions.RequestException as e:
             print(f"[ERREUR] Impossible d'accéder à {ville} : {e}")
             continue
 
+        # On charge le HTML brut
         soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Le nouveau sélecteur cible les balises <a> contenant les offres
-        offers = soup.select("a.group.block")
         
-        for offer in offers:
-            try:
-                # 1. URL de l'offre
-                job_url = offer.get("href")
-                if not job_url: continue
+        # 🕵️‍♂️ L'astuce magique : on cherche la balise cachée d'Inertia.js
+        app_div = soup.find("div", id="app")
 
-                # 2. Titre
-                title_tag = offer.select_one("h3")
-                title = title_tag.get_text(strip=True) if title_tag else "Titre non spécifié"
+        if not app_div or not app_div.has_attr("data-page"):
+            print(f"⚠️ Impossible de trouver la balise de données pour {ville}. Le site bloque peut-être notre robot.")
+            continue
+            
+        try:
+            # On convertit le texte caché en un vrai dictionnaire Python !
+            page_data = json.loads(app_div["data-page"])
+            
+            # Dans Inertia.js, les données utiles sont toujours dans "props"
+            props = page_data.get("props", {})
+            
+            # On cible le tableau des offres (il s'appelle très souvent "offres" et contient "data" pour la pagination)
+            offres_brutes = []
+            if "offres" in props:
+                if isinstance(props["offres"], dict) and "data" in props["offres"]:
+                    offres_brutes = props["offres"]["data"]
+                elif isinstance(props["offres"], list):
+                    offres_brutes = props["offres"]
+            
+            print(f"   📦 {len(offres_brutes)} offres trouvées dans la base de données de la page pour {ville}.")
 
-                # 3. Entreprise (souvent à côté de l'icône de bâtiment)
-                company_tag = offer.select_one("span.truncate.font-medium")
-                company = company_tag.get_text(strip=True) if company_tag else "Entreprise Inconnue"
-
-                # 4. Tags et Catégorie (CDD, FNER, STAGE...)
-                tags_spans = offer.select("div.flex-wrap span")
-                tags_list = [t.get_text(strip=True) for t in tags_spans]
-                tags_str = " ".join(tags_list)
-                category = normalize_category(tags_str)
-# 5. Secteur et Nombre de postes
-                details_spans = offer.select("div.space-y-2 span.truncate")
-                secteur = details_spans[0].get_text(strip=True) if len(details_spans) > 0 else "Non spécifié"
-                postes = details_spans[1].get_text(strip=True) if len(details_spans) > 1 else "1 poste"
-
-                # 6. Date limite
-                date_tag = offer.select_one("div.border-t div.flex.items-center.gap-1")
-                raw_date = date_tag.get_text(strip=True) if date_tag else ""
-                date_end = parse_french_date(raw_date)
+            for offer in offres_brutes:
+                # 1. Extraction directe et propre depuis le JSON !
+                title = str(offer.get("titre") or offer.get("intitule") or "Titre non spécifié")
+                
+                # 2. Reconstitution du lien
+                reference = str(offer.get("reference") or offer.get("id") or "")
+                job_url = f"https://agenceemploijeunes.ci/offres-emploi/{reference}" if reference else url
+                
+                # 3. Entreprise
+                # Parfois c'est offer["entreprise"]["nom"], parfois directement offer["nom_entreprise"]
+                company = "Agence Emploi Jeunes"
+                if isinstance(offer.get("entreprise"), dict):
+                    company = offer.get("entreprise").get("nom", company)
+                elif offer.get("nom_entreprise"):
+                    company = offer.get("nom_entreprise")
+                
+                # 4. Catégorie
+                category = "Emplois"
+                type_contrat = str(offer.get("type_contrat", "") or "")
+if type_contrat and "stage" in type_contrat.lower():
+                    category = "Stages"
+                
+                # 5. Dates
                 date_start = datetime.today().strftime("%d/%m/%Y")
+                date_limite = offer.get("date_limite") or offer.get("date_cloture")
+                if date_limite:
+                    try:
+                        # Les dates API sont souvent au format "2026-06-10T..."
+                        date_end = datetime.strptime(date_limite[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                    except Exception:
+                        date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+                else:
+                    date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
 
-                # 7. Description propre
-                full_description = f"Entreprise: {company}\nLieu: {ville}\nSecteur: {secteur}\nNombre de places: {postes}\nType: {', '.join(tags_list)}"
+                # 6. Description
+                full_description = f"Entreprise: {company}\nLieu: {ville}\nType de contrat: {type_contrat}"
+                desc_texte = offer.get("description") or offer.get("profil_recherche")
+                if desc_texte:
+                    # On nettoie un peu le HTML s'il y en a dans la description JSON
+                    clean_desc = BeautifulSoup(str(desc_texte), "html.parser").get_text(separator=" ", strip=True)
+                    full_description += f"\nDescription: {clean_desc[:200]}..."
 
-                # 8. Création de l'objet
+                # 7. Création de l'opportunité
                 opp_id = str(generate_numeric_id(title, job_url))
                 source_name = "Agence Emploi Jeunes"
 
-                # Notification système (Si tu as conservé cette fonction)
                 try:
                     check_and_notify_new_source(source_name)
-                except:
+                except Exception:
                     pass
 
                 items.append(build_opportunity(
@@ -2561,10 +2696,10 @@ def scrape_agence_emploi_jeunes():
                     badge_color="green",
                     description=full_description
                 ))
-            
-            except Exception as e:
-                print(f"⚠️ Erreur lors de l'extraction d'une offre AEJ: {e}")
-                continue
+                
+        except Exception as e:
+            print(f"⚠️ Erreur inattendue lors de la lecture du JSON pour {ville} : {e}")
+            continue
 
     print(f"✅ AEJ terminé : {len(items)} offres récupérées au total.")
     return items
