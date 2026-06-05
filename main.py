@@ -2653,7 +2653,7 @@ def scrape_agence_emploi_jeunes():
                 # 4. Catégorie
                 category = "Emplois"
                 type_contrat = str(offer.get("type_contrat", "") or "")
-if type_contrat and "stage" in type_contrat.lower():
+                if type_contrat and "stage" in type_contrat.lower():
                     category = "Stages"
                 
                 # 5. Dates
