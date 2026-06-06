@@ -2941,8 +2941,7 @@ def scrape_orange_jobs(max_pages=3):
                     date_end=date_end,
                     url=job_url,
                     badge_color="orange",
-                    description=full_description,
-                    location=location
+                    description=full_description
                 )
                 
                 items.append(opp)
