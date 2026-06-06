@@ -2802,29 +2802,44 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 
-
 def scrape_orange_jobs(max_pages=3):
-    # L'URL secrète de l'API d'Orange Jobs
-    url = "https://orange.jobs/api/jobs"
+    # La vraie URL cachée
+    url = "https://orange.jobs/widgets"
     items = []
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Content-Type": "application/json", # On précise qu'on envoie et reçoit du JSON
+        "Content-Type": "application/json",
         "Accept": "application/json"
     }
 
-    print("🔵 Démarrage du scraping Orange Jobs (via l'API)...")
+    print("🔵 Démarrage du scraping Orange Jobs (via Widgets)...")
 
     for page in range(1, max_pages + 1):
         offset = (page - 1) * 10
         
-        # Le paquet de données qu'on envoie au serveur d'Orange
+        # Le payload standard pour Phenom ATS
         payload = {
+            "lang": "fr_global",
+            "deviceType": "desktop",
+            "country": "global",
+            "pageName": "search-results",
+            "ddoKey": "refineSearch",
+            "sortBy": "",
+            "subsearch": "",
             "from": offset,
+            "jobs": True,
+            "counts": True,
+            "all_fields": ["category", "country", "city", "state", "type"],
             "size": 10,
-            "query": "Côte d'Ivoire", # On force la recherche sur le pays
-            "lang": "fr"
+            "clearAll": False,
+            "jdsource": "facets",
+            "isSliderEnable": False,
+            "pageId": "page1-search-results",
+            "siteType": "external",
+            "keywords": "",
+            "global": True,
+            "selected_fields": {}
         }
         
         print(f"   📄 Scraping de la page {page} (offres {offset} à {offset+10})...")
@@ -2832,11 +2847,10 @@ def scrape_orange_jobs(max_pages=3):
         try:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            # 🔴 ATTENTION : C'est un POST ici, pas un GET !
             resp = requests.post(url, json=payload, headers=headers, timeout=15, verify=False)
             resp.raise_for_status()
         except requests.exceptions.RequestException as e:
-            print(f"      [ERREUR] Impossible d'accéder à l'API Orange : {e}")
+            print(f"      [ERREUR] Impossible d'accéder au widget Orange : {e}")
             break
 
         try:
@@ -2845,12 +2859,15 @@ def scrape_orange_jobs(max_pages=3):
             print("      ⚠️ Le serveur n'a pas renvoyé de JSON valide.")
             break
 
-        # Extraction de la liste des offres
+        # Extraction de la liste des offres dans la structure spécifique du widget
         jobs = []
-        if "jobs" in data:
-            jobs = data["jobs"]
-        elif "data" in data and "jobs" in data["data"]:
-            jobs = data["data"]["jobs"]
+        try:
+            if "refineSearch" in data and "data" in data["refineSearch"]:
+                jobs = data["refineSearch"]["data"].get("jobs", [])
+            elif "data" in data and "jobs" in data["data"]:
+                jobs = data["data"]["jobs"]
+        except Exception:
+            pass
             
         if not jobs:
             print(f"      ℹ️ Plus aucune offre trouvée. Fin de la recherche.")
@@ -2858,36 +2875,46 @@ def scrape_orange_jobs(max_pages=3):
 
         for job in jobs:
             try:
-                # 1. Titre et URL
+                # 1. Titre, URL et Localisation
                 title = str(job.get("title") or "Titre non spécifié")
                 req_id = str(job.get("reqId") or job.get("jobSeqNo") or "")
                 job_url = f"https://orange.jobs/fr/fr/job/{req_id}" if req_id else "https://orange.jobs/fr/fr/search-results"
                 
-                # 2. Localité (et filtre de sécurité)
-                location = str(job.get("location") or "Côte d'Ivoire")
-                if "ivoire" not in location.lower() and "abidjan" not in location.lower():
-                    # Si c'est une offre étrangère, on passe au suivant
-                    continue
+                # On prend toutes les localisations sans filtrer
+                location = str(job.get("location") or job.get("city") or job.get("country") or "Non spécifié")
                     
-                # 3. Catégorie
+                # 2. Catégorie
                 category = "Emplois"
-                type_contrat = str(job.get("contractType") or "Non spécifié")
+                type_contrat = str(job.get("type") or job.get("contractType") or "Non spécifié")
                 if "stage" in type_contrat.lower() or "intern" in type_contrat.lower():
                     category = "Stages"
                 elif "alternance" in type_contrat.lower() or "apprentice" in type_contrat.lower():
                     category = "Formations"
 
-                # 4. Dates
-                date_start = datetime.today().strftime("%d/%m/%Y")
-                posted_date = job.get("postedDate")
-                if posted_date and len(str(posted_date)) >= 10:
+                # 3. Logique de Dates
+                # a. Date de début (par défaut : Aujourd'hui)
+                date_start_obj = datetime.today()
+                date_start = date_start_obj.strftime("%d/%m/%Y")
+                
+                posted_date = job.get("postedDate") or job.get("dateCreated")
+                if posted_date:
                     try:
-                        date_start = datetime.strptime(str(posted_date)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
-                    except Exception: pass
-                    
-                date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+                        date_start_obj = datetime.strptime(str(posted_date)[:10], "%Y-%m-%d")
+                        date_start = date_start_obj.strftime("%d/%m/%Y")
+                    except Exception: 
+                        pass
 
-                # 5. Description
+                # b. Date de fin (par défaut : Date de début + 30 jours)
+                date_end = (date_start_obj + timedelta(days=30)).strftime("%d/%m/%Y")
+                
+                end_date_str = job.get("endDate")
+                if end_date_str:
+                    try:
+                        date_end = datetime.strptime(str(end_date_str)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                    except Exception:
+                        pass
+
+                # 4. Description
                 company = "Orange"
                 desc_html = job.get("description", "")
                 clean_desc = BeautifulSoup(str(desc_html), "html.parser").get_text(separator=" ", strip=True) if desc_html else ""
@@ -2895,7 +2922,8 @@ def scrape_orange_jobs(max_pages=3):
                 full_description = f"Entreprise: {company}\nLieu: {location}\nType de contrat: {type_contrat}"
                 if clean_desc:
                     full_description += f"\nDescription: {clean_desc[:250]}..."
-# 6. Création
+
+                # 5. Création
                 opp_id = str(generate_numeric_id(title, job_url))
                 source_name = "Orange Jobs"
 
@@ -2913,13 +2941,10 @@ def scrape_orange_jobs(max_pages=3):
                     date_end=date_end,
                     url=job_url,
                     badge_color="orange",
-                    description=full_description
+                    description=full_description,
+                    location=location
                 )
                 
-                # On force la localité propre comme on a appris à le faire
-                if isinstance(opp, dict):
-                    opp["location"] = location
-                    
                 items.append(opp)
                 
             except Exception as e:
@@ -2928,9 +2953,6 @@ def scrape_orange_jobs(max_pages=3):
 
     print(f"✅ Orange Jobs terminé : {len(items)} offres récupérées au total.")
     return items
-
-
-
 
 
 @app.get("/scrape/orange")
