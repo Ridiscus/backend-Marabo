@@ -2221,17 +2221,110 @@ def scrape_daad_scholarship():
 # Désactiver les warnings SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def scrape_educarriere(max_pages: int = 1):
-    base_url = "https://emploi.educarriere.ci/nos-offres"
+# def scrape_educarriere(max_pages: int = 1):
+#     base_url = "https://emploi.educarriere.ci/nos-offres"
+#     items = []
+
+#     headers = {
+#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+#         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+#     }
+
+
+
+#     def normalize_category(cat: str) -> str:
+#         cat = cat.lower()
+#         if "emploi" in cat:
+#             return "Emplois"
+#         elif "stage" in cat:
+#             return "Stages"
+#         elif "formation" in cat:
+#             return "Formations"
+#         else:
+#             return cat.capitalize()
+
+
+
+#     for page in range(1, max_pages + 1):
+#         url = f"{base_url}?page={page}" if page > 1 else base_url
+
+#         try:
+#             resp = requests.get(url, headers=headers, timeout=10, verify=False)
+#             resp.raise_for_status()
+#         except requests.exceptions.SSLError:
+#             print(f"[SSL ERROR] Impossible de se connecter à {url}")
+#             continue
+
+#         soup = BeautifulSoup(resp.text, "html.parser")
+
+#         offers = soup.select("div.rt-post.post-md.style-8")
+#         for offer in offers:
+#             # URL et titre
+#             a_tag = offer.select_one("h4.post-title a")
+#             title = a_tag.get_text(strip=True) if a_tag else "Titre non spécifié"
+#             job_url = a_tag["href"] if a_tag and a_tag.has_attr("href") else url
+
+#             # Catégorie (Emploi, Stage, Emploi (CDD), etc.)
+#             category_tag = offer.select_one("a.racing")
+#             raw_category = category_tag.get_text(strip=True) if category_tag else "Non spécifié"
+#             category = normalize_category(raw_category)
+
+#             # Dates
+#             metas = offer.select("span.rt-meta li")
+#             date_start, date_end = None, None
+#             for li in metas:
+#                 text = li.get_text(strip=True)
+#                 if "Date d'édition" in text:
+#                     try:
+#                         raw = li.find("span").get_text(strip=True)
+#                         date_start = datetime.strptime(raw, "%d/%m/%Y").strftime("%d/%m/%Y")
+#                     except Exception:
+#                         date_start = datetime.today().strftime("%d/%m/%Y")
+#                 if "Date limite" in text:
+#                     try:
+#                         raw = li.find("span").get_text(strip=True)
+#                         date_end = datetime.strptime(raw, "%d/%m/%Y").strftime("%d/%m/%Y")
+#                     except Exception:
+#                         date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+#             # fallback si manquant
+#             if not date_start:
+#                 date_start = datetime.today().strftime("%d/%m/%Y")
+#             if not date_end:
+#                 date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+#             # ID unique
+#             opp_id = str(generate_numeric_id(title, date_end))
+
+#             source = "EMPLOI EDUCARRIERE"
+
+#             # ✅ AJOUT ICI
+#             check_and_notify_new_source(source)
+
+#             items.append(build_opportunity(
+#                 opp_id=opp_id,
+#                 title=title,
+#                 category=category,   # dynamique
+#                 source="Educarriere",
+#                 date_start=date_start,
+#                 date_end=date_end,
+#                 url=job_url,
+#                 badge_color="purple",
+#                 description=f"{title} ({category}) - Voir plus sur Educarriere."
+#             ))
+
+#     return items
+
+
+
+
+def scrape_educarriere(max_pages: int = 28): # J'ai mis 28 par défaut
     items = []
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
-
-
-
 
     def normalize_category(cat: str) -> str:
         cat = cat.lower()
@@ -2244,330 +2337,137 @@ def scrape_educarriere(max_pages: int = 1):
         else:
             return cat.capitalize()
 
-
+    print("🔵 Démarrage du scraping Educarriere...")
 
     for page in range(1, max_pages + 1):
-        url = f"{base_url}?page={page}" if page > 1 else base_url
+        # 🟢 CORRECTION DE LA PAGINATION ICI
+        if page == 1:
+            url = "https://emploi.educarriere.ci/emploi"
+        else:
+            url = f"https://emploi.educarriere.ci/emploi/page/emploi/{page}"
+
+        print(f"   📄 Scraping de la page {page} ({url})...")
 
         try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             resp = requests.get(url, headers=headers, timeout=10, verify=False)
             resp.raise_for_status()
-        except requests.exceptions.SSLError:
-            print(f"[SSL ERROR] Impossible de se connecter à {url}")
+        except requests.exceptions.RequestException as e:
+            print(f"      [ERREUR] Impossible de se connecter à {url} : {e}")
             continue
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
         offers = soup.select("div.rt-post.post-md.style-8")
+        
+        if not offers:
+            print(f"      ℹ️ Aucune offre trouvée sur la page {page}. Fin de la pagination.")
+            break
+
         for offer in offers:
-            # URL et titre
-            a_tag = offer.select_one("h4.post-title a")
-            title = a_tag.get_text(strip=True) if a_tag else "Titre non spécifié"
-            job_url = a_tag["href"] if a_tag and a_tag.has_attr("href") else url
+            try:
+                # URL et titre
+                a_tag = offer.select_one("h4.post-title a")
+                title = a_tag.get_text(strip=True) if a_tag else "Titre non spécifié"
+                job_url = a_tag["href"] if a_tag and a_tag.has_attr("href") else url
 
-            # Catégorie (Emploi, Stage, Emploi (CDD), etc.)
-            category_tag = offer.select_one("a.racing")
-            raw_category = category_tag.get_text(strip=True) if category_tag else "Non spécifié"
-            category = normalize_category(raw_category)
+                # Catégorie
+                category_tag = offer.select_one("a.racing")
+                raw_category = category_tag.get_text(strip=True) if category_tag else "Non spécifié"
+                category = normalize_category(raw_category)
 
-            # Dates
-            metas = offer.select("span.rt-meta li")
-            date_start, date_end = None, None
-            for li in metas:
-                text = li.get_text(strip=True)
-                if "Date d'édition" in text:
-                    try:
-                        raw = li.find("span").get_text(strip=True)
-                        date_start = datetime.strptime(raw, "%d/%m/%Y").strftime("%d/%m/%Y")
-                    except Exception:
-                        date_start = datetime.today().strftime("%d/%m/%Y")
-                if "Date limite" in text:
-                    try:
-                        raw = li.find("span").get_text(strip=True)
-                        date_end = datetime.strptime(raw, "%d/%m/%Y").strftime("%d/%m/%Y")
-                    except Exception:
-                        date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+                # Dates
+                metas = offer.select("span.rt-meta li")
+                date_start, date_end = None, None
+                for li in metas:
+                    text = li.get_text(strip=True)
+                    if "Date d'édition" in text:
+                        try:
+                            raw = li.find("span").get_text(strip=True)
+                            date_start = datetime.strptime(raw, "%d/%m/%Y").strftime("%d/%m/%Y")
+                        except Exception:
+                            date_start = datetime.today().strftime("%d/%m/%Y")
+                    if "Date limite" in text:
+                        try:
+                            raw = li.find("span").get_text(strip=True)
+                            date_end = datetime.strptime(raw, "%d/%m/%Y").strftime("%d/%m/%Y")
+                        except Exception:
+                            date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
 
-            # fallback si manquant
-            if not date_start:
-                date_start = datetime.today().strftime("%d/%m/%Y")
-            if not date_end:
-                date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+                # fallback si manquant
+                if not date_start:
+                    date_start = datetime.today().strftime("%d/%m/%Y")
+                if not date_end:
+                    date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
 
-            # ID unique
-            opp_id = str(generate_numeric_id(title, date_end))
+                # ID unique
+                opp_id = str(generate_numeric_id(title, date_end))
+                source = "EMPLOI EDUCARRIERE"
 
-            source = "EMPLOI EDUCARRIERE"
+                # Notification (tu peux l'entourer d'un try/except pour éviter que ça plante tout)
+                try:
+                    check_and_notify_new_source(source)
+                except Exception:
+                    pass
+                    items.append(build_opportunity(
+                    opp_id=opp_id,
+                    title=title,
+                    category=category,
+                    source="Educarriere",
+                    date_start=date_start,
+                    date_end=date_end,
+                    url=job_url,
+                    badge_color="purple",
+                    description=f"{title} ({category}) - Voir plus sur Educarriere."
+                ))
+            except Exception as e:
+                print(f"      ⚠️ Erreur lors du traitement d'une offre Educarriere : {e}")
+                continue
 
-            # ✅ AJOUT ICI
-            check_and_notify_new_source(source)
-
-            items.append(build_opportunity(
-                opp_id=opp_id,
-                title=title,
-                category=category,   # dynamique
-                source="Educarriere",
-                date_start=date_start,
-                date_end=date_end,
-                url=job_url,
-                badge_color="purple",
-                description=f"{title} ({category}) - Voir plus sur Educarriere."
-            ))
-
+    print(f"✅ Educarriere terminé : {len(items)} offres récupérées au total.")
     return items
 
 
 
 
 
-
-# def scrape_agence_emploi_jeunes(max_pages: int = 1):
-#     base_url = "https://agenceemploijeunes.ci/site/offres-emplois"
-#     items = []
-
-#     headers = {
-#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
-#         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
-#     }
-
-#     def normalize_category(cat: str) -> str:
-#         cat = cat.lower()
-#         if "emploi" in cat:
-#             return "Emplois"
-#         elif "stage" in cat:
-#             return "Stages"
-#         elif "formation" in cat:
-#             return "Formations"
-#         else:
-#             # S'il y a un autre type (ex: CDD, CDI qui n'a pas le mot emploi), on force "Emplois" par défaut
-#             return "Emplois"
-
-#     for page in range(1, max_pages + 1):
-#         # Sur l'AEJ, la pagination utilise généralement le paramètre ?page=X
-#         url = f"{base_url}?page={page}" if page > 1 else base_url
-
-#         try:
-#             resp = requests.get(url, headers=headers, timeout=10, verify=False)
-#             resp.raise_for_status()
-#         except requests.exceptions.RequestException as e:
-#             print(f"[ERREUR] Impossible de se connecter à {url} : {e}")
-#             continue
-
-#         soup = BeautifulSoup(resp.text, "html.parser")
-
-#         # Sélection de chaque bloc d'offre (d'après ton code HTML : <li> contenant div.post-bx)
-#         offers = soup.select("ul.post-job-bx > li")
+@app.get("/scrape/educarriere")
+def trigger_educarriere_scrape():
+    print("🚀 Lancement manuel du scraper Educarriere...")
+    try:
+        # On lance le scraping (qui est configuré par défaut sur 28 pages)
+        data = scrape_educarriere() 
         
-#         for offer in offers:
-#             post_bx = offer.select_one("div.post-bx")
-#             if not post_bx:
-#                 continue
-
-#             # 1. URL et Titre
-#             a_tag = post_bx.select_one("div.job-post-info h4 a")
-#             title = a_tag.get_text(strip=True) if a_tag else "Titre non spécifié"
-#             job_url = a_tag["href"] if a_tag and a_tag.has_attr("href") else url
-
-#             # 2. Catégorie (Ex: STAGE DE VALIDATION, COMMERCIAL...)
-#             category_tag = post_bx.select_one("div.job-time span.pull-right")
-#             raw_category = category_tag.get_text(strip=True) if category_tag else "Emplois"
-#             category = normalize_category(raw_category)
-
-#             # 3. Dates et Lieu
-#             metas = post_bx.select("div.job-post-info ul div.row li")
-#             date_start, date_end, location = None, None, "Côte d'Ivoire"
+        count = 0
+        # Sauvegarde dans Firestore
+        for item in data:
+            # On récupère l'ID unique de l'offre
+            item_id = item.get("id") or item.get("opp_id") 
             
-#             for li in metas:
-#                 text = li.get_text(strip=True)
-#                 if "Publié le:" in text:
-#                     # Ex: "Publié le: 01 04 2026" -> on extrait "01 04 2026"
-#                     raw = text.split(":")[-1].strip()
-#                     try:
-#                         date_start = datetime.strptime(raw, "%d %m %Y").strftime("%d/%m/%Y")
-#                     except Exception:
-#                         date_start = datetime.today().strftime("%d/%m/%Y")
+            if not item_id:
+                continue 
                 
-#                 elif "Date limite:" in text:
-#                     # Ex: "Date limite:08 04 2026"
-#                     raw = text.split(":")[-1].strip()
-#                     try:
-#                         date_end = datetime.strptime(raw, "%d %m %Y").strftime("%d/%m/%Y")
-#                     except Exception:
-#                         date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
-                
-#                 elif li.find("i", class_="fa-map-marker"):
-#                     location = text.replace("fa-map-marker", "").strip()
-
-#             # Fallback si dates manquantes
-#             if not date_start:
-#                 date_start = datetime.today().strftime("%d/%m/%Y")
-#             if not date_end:
-#                 date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
-
-#             # 4. Description courte et Diplôme
-#             p_tag = post_bx.select_one("p")
-#             desc_text = p_tag.get_text(separator=" ", strip=True) if p_tag else ""
+            doc_ref = db.collection("opportunities").document(str(item_id))
             
-#             diploma_tag = post_bx.select_one("div.salary-bx")
-#             diploma = diploma_tag.get_text(separator=" ", strip=True) if diploma_tag else ""
-
-#             full_description = f"{desc_text}\nLieu: {location}\n{diploma}"
-
-#             # 5. ID unique et Source
-#             opp_id = str(generate_numeric_id(title, date_end)) # Ta fonction existante
-#             source = "AGENCE EMPLOI JEUNES"
-
-#             # ✅ Notification système
-#             check_and_notify_new_source(source) # Ta fonction existante
-
-#             # Construction de l'objet
-#             items.append(build_opportunity(
-#                 opp_id=opp_id,
-#                 title=title,
-#                 category=category,   # Catégorie convertie (Stages, Emplois...)
-#                 source="Agence Emploi Jeunes",
-#                 date_start=date_start,
-#                 date_end=date_end,
-#                 url=job_url,
-#                 badge_color="green", # AEJ utilise beaucoup le vert
-#                 description=full_description
-#             ))
-
-#     return items
-
-
-
-
-# def scrape_agence_emploi_jeunes():
-#     # 🔴 À TOI DE REMPLIR CE DICTIONNAIRE 🔴
-#     # Va sur le site, clique sur chaque ville, et copie-colle l'URL exacte ici :
-#     VILLES_URLS = {
-#         "Bouaké": "https://agenceemploijeunes.ci/offres-emploi?agence_regionale=10", # <-- Remplace par la VRAIE url de Bouaké
-#          # <-- Remplace par la VRAIE url d'Abidjan
-#         # Ajoute Yamoussoukro, Daloa, San-Pedro, etc...
-#     }
-
-#     items = []
-#     headers = {
-#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
-#         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
-#     }
-
-#     # Petit dictionnaire pour traduire les mois en français vers un format chiffré
-#     MOIS_FR = {
-#         "janv.": "01", "janvier": "01", "févr.": "02", "février": "02",
-#         "mars": "03", "avr.": "04", "avril": "04", "mai": "05",
-#         "juin": "06", "juil.": "07", "juillet": "07", "août": "08",
-#         "sept.": "09", "septembre": "09", "oct.": "10", "octobre": "10",
-#         "nov.": "11", "novembre": "11", "déc.": "12", "décembre": "12"
-#     }
-
-#     def parse_french_date(date_str):
-#         """Convertit '10 juin 2026' en '10/06/2026'"""
-#         try:
-#             date_str = date_str.lower().strip()
-#             parts = date_str.split()
-#             if len(parts) >= 3:
-#                 jour = parts[0].zfill(2)
-#                 mois_texte = parts[1]
-#                 annee = parts[2]
+            # On vérifie si l'offre n'existe pas déjà dans la base de données
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
                 
-#                 mois = "12" # par défaut
-#                 for cle, valeur in MOIS_FR.items():
-#                     if cle in mois_texte:
-#                         mois = valeur
-#                         break
-#                 return f"{jour}/{mois}/{annee}"
-#         except Exception:
-#             pass
-#         # Si erreur, on met Date d'aujourd'hui + 30 jours
-#         return (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
-
-#     def normalize_category(cat: str) -> str:
-#         cat = cat.lower()
-#         if "stage" in cat: return "Stages"
-#         elif "formation" in cat: return "Formations"
-#         else: return "Emplois"
-
-#     print("🔵 Démarrage du scraping Agence Emploi Jeunes (Multi-Villes)...")
-
-#     # On boucle sur chaque ville !
-#     for ville, url in VILLES_URLS.items():
-#         print(f"   📍 Recherche des opportunités à {ville}...")
+        print(f"✅ Scraping Educarriere terminé : {count} nouvelles opportunités ajoutées sur {len(data)} trouvées.")
         
-#         try:
-#             resp = requests.get(url, headers=headers, timeout=15, verify=False)
-#             resp.raise_for_status()
-#         except requests.exceptions.RequestException as e:
-#             print(f"[ERREUR] Impossible d'accéder à {ville} : {e}")
-#             continue
-
-#         soup = BeautifulSoup(resp.text, "html.parser")
-
-#         # Le nouveau sélecteur cible les balises <a> contenant les offres
-#         offers = soup.select("a.group.block")
+        return {
+            "status": "success", 
+            "added": count, 
+            "total_found": len(data),
+            "data": data
+        }
         
-#         for offer in offers:
-#             try:
-#                 # 1. URL de l'offre
-#                 job_url = offer.get("href")
-#                 if not job_url: continue
+    except Exception as e:
+        print(f"❌ Erreur lors du déclenchement du scraping Educarriere : {e}")
+        return {"status": "error", "message": str(e)}
 
-#                 # 2. Titre
-#                 title_tag = offer.select_one("h3")
-#                 title = title_tag.get_text(strip=True) if title_tag else "Titre non spécifié"
-
-#                 # 3. Entreprise (souvent à côté de l'icône de bâtiment)
-#                 company_tag = offer.select_one("span.truncate.font-medium")
-#                 company = company_tag.get_text(strip=True) if company_tag else "Entreprise Inconnue"
-
-#                 # 4. Tags et Catégorie (CDD, FNER, STAGE...)
-#                 tags_spans = offer.select("div.flex-wrap span")
-#                 tags_list = [t.get_text(strip=True) for t in tags_spans]
-#                 tags_str = " ".join(tags_list)
-#                 category = normalize_category(tags_str)
-# # 5. Secteur et Nombre de postes
-#                 details_spans = offer.select("div.space-y-2 span.truncate")
-#                 secteur = details_spans[0].get_text(strip=True) if len(details_spans) > 0 else "Non spécifié"
-#                 postes = details_spans[1].get_text(strip=True) if len(details_spans) > 1 else "1 poste"
-
-#                 # 6. Date limite
-#                 date_tag = offer.select_one("div.border-t div.flex.items-center.gap-1")
-#                 raw_date = date_tag.get_text(strip=True) if date_tag else ""
-#                 date_end = parse_french_date(raw_date)
-#                 date_start = datetime.today().strftime("%d/%m/%Y")
-
-#                 # 7. Description propre
-#                 full_description = f"Entreprise: {company}\nLieu: {ville}\nSecteur: {secteur}\nNombre de places: {postes}\nType: {', '.join(tags_list)}"
-
-#                 # 8. Création de l'objet
-#                 opp_id = str(generate_numeric_id(title, job_url))
-#                 source_name = "Agence Emploi Jeunes"
-
-#                 # Notification système (Si tu as conservé cette fonction)
-#                 try:
-#                     check_and_notify_new_source(source_name)
-#                 except:
-#                     pass
-
-#                 items.append(build_opportunity(
-#                     opp_id=opp_id,
-#                     title=title,
-#                     category=category,
-#                     source=source_name,
-#                     date_start=date_start,
-#                     date_end=date_end,
-#                     url=job_url,
-#                     badge_color="green",
-#                     description=full_description
-#                 ))
-            
-#             except Exception as e:
-#                 print(f"⚠️ Erreur lors de l'extraction d'une offre AEJ: {e}")
-#                 continue
-
-#     print(f"✅ AEJ terminé : {len(items)} offres récupérées au total.")
-#     return items
 
 
 
@@ -4545,6 +4445,7 @@ def run_all_scrapers():
     scrapers = [
         scrape_agence_emploi_jeunes,
         #scrape_linkedin_jobs,
+        scrape_orange_jobs,
         scrape_faci,
         scrape_ens,
         scrape_cafop,
