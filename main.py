@@ -2317,12 +2317,15 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
 
-def scrape_educarriere(max_pages: int = 28): # J'ai mis 28 par défaut
+def scrape_educarriere(max_pages: int = 28): 
     items = []
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
 
@@ -2340,10 +2343,11 @@ def scrape_educarriere(max_pages: int = 28): # J'ai mis 28 par défaut
     print("🔵 Démarrage du scraping Educarriere...")
 
     for page in range(1, max_pages + 1):
-        # 🟢 CORRECTION DE LA PAGINATION ICI
+        # 🟢 LA CORRECTION EST ICI : On garde ton URL d'origine pour la page 1 !
         if page == 1:
-            url = "https://emploi.educarriere.ci/emploi"
+            url = "https://emploi.educarriere.ci/nos-offres"
         else:
+            # Et on utilise le chemin de pagination d'Educarriere pour le reste
             url = f"https://emploi.educarriere.ci/emploi/page/emploi/{page}"
 
         print(f"   📄 Scraping de la page {page} ({url})...")
@@ -2359,6 +2363,7 @@ def scrape_educarriere(max_pages: int = 28): # J'ai mis 28 par défaut
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
+        # Ton sélecteur qui marchait très bien
         offers = soup.select("div.rt-post.post-md.style-8")
         
         if not offers:
@@ -2405,7 +2410,6 @@ def scrape_educarriere(max_pages: int = 28): # J'ai mis 28 par défaut
                 opp_id = str(generate_numeric_id(title, date_end))
                 source = "EMPLOI EDUCARRIERE"
 
-                # Notification (tu peux l'entourer d'un try/except pour éviter que ça plante tout)
                 try:
                     check_and_notify_new_source(source)
                 except Exception:
@@ -2427,7 +2431,6 @@ def scrape_educarriere(max_pages: int = 28): # J'ai mis 28 par défaut
 
     print(f"✅ Educarriere terminé : {len(items)} offres récupérées au total.")
     return items
-
 
 
 
