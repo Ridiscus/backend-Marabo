@@ -2802,6 +2802,184 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 
+
+def scrape_orange_jobs(max_pages=3):
+    # L'URL de base pour la recherche. On gère la pagination et le pays dans la boucle.
+    base_url = "https://orange.jobs/fr/fr/search-results"
+    items = []
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+
+    print("🔵 Démarrage du scraping Orange Jobs...")
+
+    for page in range(1, max_pages + 1):
+        # Phenom (le moteur d'Orange) pagine par paquets de 10 (?from=0, ?from=10, ?from=20)
+        offset = (page - 1) * 10
+        
+        # 🟢 ASTUCE : Filtre strict sur la Côte d'Ivoire directement dans l'URL
+        url = f"{base_url}?from={offset}&s=1&lang=fr&country=Côte%20d'Ivoire"
+        
+        print(f"   📄 Scraping de la page {page} (offres {offset} à {offset+10})...")
+        
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            resp = requests.get(url, headers=headers, timeout=15, verify=False)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            print(f"      [ERREUR] Impossible d'accéder à Orange Jobs : {e}")
+            break
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Les liens des titres d'offres ont cet attribut spécifique sur Phenom ATS
+        job_links = soup.find_all("a", attrs={"phw-click-ctx": "job"})
+        
+        if not job_links:
+            print(f"      ⚠️ Aucune offre trouvée sur la page {page}. Fin du scraping Orange.")
+            break
+
+        for a_tag in job_links:
+            try:
+                # 1. URL et Titre
+                job_url = str(a_tag.get("href", ""))
+                title = str(a_tag.get_text(strip=True) or "Titre non spécifié")
+
+                # 2. On "remonte" le HTML pour trouver la carte complète qui contient l'offre
+                card = a_tag.parent
+                for _ in range(5):
+                    if card and card.name != "body":
+                        if card.find("div", attrs={"data-ph-at-id": "job-contractType"}):
+                            break
+                        card = card.parent
+
+                company = "Orange"
+                category = "Emplois"
+                type_contrat = "Non spécifié"
+                location = "Côte d'Ivoire"
+                desc_text = ""
+
+                if card:
+                    # 3. Type de contrat (CDI, Stage, etc.)
+                    contract_div = card.find("div", attrs={"data-ph-at-id": "job-contractType"})
+                    if contract_div:
+                        spans = contract_div.find_all("span")
+                        if len(spans) > 1:
+                            type_contrat = spans[-1].get_text(strip=True)
+                        else:
+                            # Souvent Phenom écrit "undefined: CDI", on nettoie ça
+                            type_contrat = contract_div.get_text(strip=True).replace("undefined:", "").strip()
+
+                    # 4. Description courte (extraite d'un attribut data)
+                    desc_div = card.find("div", attrs={"data-ph-at-job-title-text": True})
+                    if desc_div:
+                        desc_text = desc_div.get("data-ph-at-job-title-text", "")
+                        
+                    # 5. Localisation exacte (ex: Abidjan) si elle est affichée
+                    loc_div = card.find("div", attrs={"data-ph-at-id": "job-location"})
+                    if loc_div:
+                        loc_spans = loc_div.find_all("span")
+                        if len(loc_spans) > 1:
+                            location = loc_spans[-1].get_text(strip=True)
+# Déduction de la catégorie
+                if "stage" in type_contrat.lower() or "intern" in type_contrat.lower():
+                    category = "Stages"
+                elif "alternance" in type_contrat.lower() or "apprentice" in type_contrat.lower():
+                    category = "Formations"
+
+                # 6. Gestion des dates (Souvent pas de date de fin visible sur les cartes Orange)
+                date_start = datetime.today().strftime("%d/%m/%Y")
+                date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+                # 7. Description propre
+                full_description = f"Entreprise: {company}\nLieu: {location}\nType de contrat: {type_contrat}"
+                if desc_text:
+                    clean_desc = BeautifulSoup(str(desc_text), "html.parser").get_text(separator=" ", strip=True)
+                    full_description += f"\nDescription: {clean_desc[:250]}..."
+
+                # 8. Création de l'opportunité
+                opp_id = str(generate_numeric_id(title, job_url))
+                source_name = "Orange Jobs"
+
+                try:
+                    check_and_notify_new_source(source_name)
+                except Exception:
+                    pass
+
+                opp = build_opportunity(
+                    opp_id=opp_id,
+                    title=title,
+                    category=category,
+                    source=source_name,
+                    date_start=date_start,
+                    date_end=date_end,
+                    url=job_url,
+                    badge_color="orange", # 🟠 Parfait pour Orange !
+                    description=full_description,
+                    location=location
+                )
+                
+                items.append(opp)
+            
+            except Exception as e:
+                print(f"      ⚠️ Erreur lors du parsing d'une offre Orange : {e}")
+                continue
+
+    print(f"✅ Orange Jobs terminé : {len(items)} offres récupérées au total.")
+    return items
+
+
+
+@app.get("/scrape/orange")
+def trigger_orange_scrape():
+    print("🚀 Lancement manuel du scraper Orange Jobs...")
+    try:
+        # On va scraper les 3 premières pages (30 offres potentielles)
+        data = scrape_orange_jobs(max_pages=3) 
+        
+        count = 0
+        # Sauvegarde dans Firestore
+        for item in data:
+            item_id = item.get("id") or item.get("opp_id") 
+            
+            if not item_id:
+                continue 
+                
+            doc_ref = db.collection("opportunities").document(str(item_id))
+            
+            # On vérifie les doublons
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        print(f"✅ Scraping Orange terminé : {count} nouvelles opportunités ajoutées sur {len(data)} trouvées.")
+        
+        return {
+            "status": "success", 
+            "added": count, 
+            "total_found": len(data),
+            "data": data
+        }
+        
+    except Exception as e:
+        print(f"❌ Erreur lors du déclenchement du scraping Orange : {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+
+
+
+
+
+
 def scrape_educarriere_formations(max_pages: int = 1):
     base_url = "https://formation.educarriere.ci/"
     items = []
