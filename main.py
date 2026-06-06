@@ -2317,6 +2317,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 
+
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -2324,9 +2325,12 @@ from datetime import datetime, timedelta
 def scrape_educarriere(max_pages: int = 28): 
     items = []
 
+    # 🟢 CORRECTION : On remet ton User-Agent ultra-complet pour passer la sécurité
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Connection": "keep-alive"
     }
 
     def normalize_category(cat: str) -> str:
@@ -2343,11 +2347,9 @@ def scrape_educarriere(max_pages: int = 28):
     print("🔵 Démarrage du scraping Educarriere...")
 
     for page in range(1, max_pages + 1):
-        # 🟢 LA CORRECTION EST ICI : On garde ton URL d'origine pour la page 1 !
         if page == 1:
             url = "https://emploi.educarriere.ci/nos-offres"
         else:
-            # Et on utilise le chemin de pagination d'Educarriere pour le reste
             url = f"https://emploi.educarriere.ci/emploi/page/emploi/{page}"
 
         print(f"   📄 Scraping de la page {page} ({url})...")
@@ -2355,19 +2357,20 @@ def scrape_educarriere(max_pages: int = 28):
         try:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            resp = requests.get(url, headers=headers, timeout=10, verify=False)
+            resp = requests.get(url, headers=headers, timeout=15, verify=False)
             resp.raise_for_status()
         except requests.exceptions.RequestException as e:
             print(f"      [ERREUR] Impossible de se connecter à {url} : {e}")
             continue
 
         soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Ton sélecteur qui marchait très bien
         offers = soup.select("div.rt-post.post-md.style-8")
         
+        # 🟢 VÉRIFICATION ET DÉBOGAGE : Si c'est vide, on regarde sur quelle page on a atterri
         if not offers:
-            print(f"      ℹ️ Aucune offre trouvée sur la page {page}. Fin de la pagination.")
+            page_title = soup.title.get_text(strip=True) if soup.title else "Titre inconnu"
+            print(f"      ⚠️ Aucune offre trouvée sur la page {page}. Le site a renvoyé la page : '{page_title}'")
+            # On s'arrête ici pour ne pas scraper 28 pages dans le vide
             break
 
         for offer in offers:
@@ -2400,13 +2403,12 @@ def scrape_educarriere(max_pages: int = 28):
                         except Exception:
                             date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
 
-                # fallback si manquant
+                # Fallback si manquant
                 if not date_start:
                     date_start = datetime.today().strftime("%d/%m/%Y")
                 if not date_end:
                     date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
-
-                # ID unique
+# ID unique
                 opp_id = str(generate_numeric_id(title, date_end))
                 source = "EMPLOI EDUCARRIERE"
 
@@ -2414,7 +2416,8 @@ def scrape_educarriere(max_pages: int = 28):
                     check_and_notify_new_source(source)
                 except Exception:
                     pass
-                    items.append(build_opportunity(
+
+                items.append(build_opportunity(
                     opp_id=opp_id,
                     title=title,
                     category=category,
