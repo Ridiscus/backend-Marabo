@@ -2804,104 +2804,98 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def scrape_orange_jobs(max_pages=3):
-    # L'URL de base pour la recherche. On gère la pagination et le pays dans la boucle.
-    base_url = "https://orange.jobs/fr/fr/search-results"
+    # L'URL secrète de l'API d'Orange Jobs
+    url = "https://orange.jobs/api/jobs"
     items = []
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/json", # On précise qu'on envoie et reçoit du JSON
+        "Accept": "application/json"
     }
 
-    print("🔵 Démarrage du scraping Orange Jobs...")
+    print("🔵 Démarrage du scraping Orange Jobs (via l'API)...")
 
     for page in range(1, max_pages + 1):
-        # Phenom (le moteur d'Orange) pagine par paquets de 10 (?from=0, ?from=10, ?from=20)
         offset = (page - 1) * 10
         
-        # 🟢 ASTUCE : Filtre strict sur la Côte d'Ivoire directement dans l'URL
-        url = f"{base_url}?from={offset}&s=1&lang=fr&country=Côte%20d'Ivoire"
+        # Le paquet de données qu'on envoie au serveur d'Orange
+        payload = {
+            "from": offset,
+            "size": 10,
+            "query": "Côte d'Ivoire", # On force la recherche sur le pays
+            "lang": "fr"
+        }
         
         print(f"   📄 Scraping de la page {page} (offres {offset} à {offset+10})...")
         
         try:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            resp = requests.get(url, headers=headers, timeout=15, verify=False)
+            # 🔴 ATTENTION : C'est un POST ici, pas un GET !
+            resp = requests.post(url, json=payload, headers=headers, timeout=15, verify=False)
             resp.raise_for_status()
         except requests.exceptions.RequestException as e:
-            print(f"      [ERREUR] Impossible d'accéder à Orange Jobs : {e}")
+            print(f"      [ERREUR] Impossible d'accéder à l'API Orange : {e}")
             break
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Les liens des titres d'offres ont cet attribut spécifique sur Phenom ATS
-        job_links = soup.find_all("a", attrs={"phw-click-ctx": "job"})
-        
-        if not job_links:
-            print(f"      ⚠️ Aucune offre trouvée sur la page {page}. Fin du scraping Orange.")
+        try:
+            data = resp.json()
+        except Exception:
+            print("      ⚠️ Le serveur n'a pas renvoyé de JSON valide.")
             break
 
-        for a_tag in job_links:
+        # Extraction de la liste des offres
+        jobs = []
+        if "jobs" in data:
+            jobs = data["jobs"]
+        elif "data" in data and "jobs" in data["data"]:
+            jobs = data["data"]["jobs"]
+            
+        if not jobs:
+            print(f"      ℹ️ Plus aucune offre trouvée. Fin de la recherche.")
+            break
+
+        for job in jobs:
             try:
-                # 1. URL et Titre
-                job_url = str(a_tag.get("href", ""))
-                title = str(a_tag.get_text(strip=True) or "Titre non spécifié")
-
-                # 2. On "remonte" le HTML pour trouver la carte complète qui contient l'offre
-                card = a_tag.parent
-                for _ in range(5):
-                    if card and card.name != "body":
-                        if card.find("div", attrs={"data-ph-at-id": "job-contractType"}):
-                            break
-                        card = card.parent
-
-                company = "Orange"
+                # 1. Titre et URL
+                title = str(job.get("title") or "Titre non spécifié")
+                req_id = str(job.get("reqId") or job.get("jobSeqNo") or "")
+                job_url = f"https://orange.jobs/fr/fr/job/{req_id}" if req_id else "https://orange.jobs/fr/fr/search-results"
+                
+                # 2. Localité (et filtre de sécurité)
+                location = str(job.get("location") or "Côte d'Ivoire")
+                if "ivoire" not in location.lower() and "abidjan" not in location.lower():
+                    # Si c'est une offre étrangère, on passe au suivant
+                    continue
+                    
+                # 3. Catégorie
                 category = "Emplois"
-                type_contrat = "Non spécifié"
-                location = "Côte d'Ivoire"
-                desc_text = ""
-
-                if card:
-                    # 3. Type de contrat (CDI, Stage, etc.)
-                    contract_div = card.find("div", attrs={"data-ph-at-id": "job-contractType"})
-                    if contract_div:
-                        spans = contract_div.find_all("span")
-                        if len(spans) > 1:
-                            type_contrat = spans[-1].get_text(strip=True)
-                        else:
-                            # Souvent Phenom écrit "undefined: CDI", on nettoie ça
-                            type_contrat = contract_div.get_text(strip=True).replace("undefined:", "").strip()
-
-                    # 4. Description courte (extraite d'un attribut data)
-                    desc_div = card.find("div", attrs={"data-ph-at-job-title-text": True})
-                    if desc_div:
-                        desc_text = desc_div.get("data-ph-at-job-title-text", "")
-                        
-                    # 5. Localisation exacte (ex: Abidjan) si elle est affichée
-                    loc_div = card.find("div", attrs={"data-ph-at-id": "job-location"})
-                    if loc_div:
-                        loc_spans = loc_div.find_all("span")
-                        if len(loc_spans) > 1:
-                            location = loc_spans[-1].get_text(strip=True)
-# Déduction de la catégorie
+                type_contrat = str(job.get("contractType") or "Non spécifié")
                 if "stage" in type_contrat.lower() or "intern" in type_contrat.lower():
                     category = "Stages"
                 elif "alternance" in type_contrat.lower() or "apprentice" in type_contrat.lower():
                     category = "Formations"
 
-                # 6. Gestion des dates (Souvent pas de date de fin visible sur les cartes Orange)
+                # 4. Dates
                 date_start = datetime.today().strftime("%d/%m/%Y")
+                posted_date = job.get("postedDate")
+                if posted_date and len(str(posted_date)) >= 10:
+                    try:
+                        date_start = datetime.strptime(str(posted_date)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                    except Exception: pass
+                    
                 date_end = (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
 
-                # 7. Description propre
+                # 5. Description
+                company = "Orange"
+                desc_html = job.get("description", "")
+                clean_desc = BeautifulSoup(str(desc_html), "html.parser").get_text(separator=" ", strip=True) if desc_html else ""
+                
                 full_description = f"Entreprise: {company}\nLieu: {location}\nType de contrat: {type_contrat}"
-                if desc_text:
-                    clean_desc = BeautifulSoup(str(desc_text), "html.parser").get_text(separator=" ", strip=True)
+                if clean_desc:
                     full_description += f"\nDescription: {clean_desc[:250]}..."
-
-                # 8. Création de l'opportunité
+# 6. Création
                 opp_id = str(generate_numeric_id(title, job_url))
                 source_name = "Orange Jobs"
 
@@ -2918,19 +2912,24 @@ def scrape_orange_jobs(max_pages=3):
                     date_start=date_start,
                     date_end=date_end,
                     url=job_url,
-                    badge_color="orange", # 🟠 Parfait pour Orange !
-                    description=full_description,
-                    location=location
+                    badge_color="orange",
+                    description=full_description
                 )
                 
+                # On force la localité propre comme on a appris à le faire
+                if isinstance(opp, dict):
+                    opp["location"] = location
+                    
                 items.append(opp)
-            
+                
             except Exception as e:
-                print(f"      ⚠️ Erreur lors du parsing d'une offre Orange : {e}")
+                print(f"      ⚠️ Erreur sur une offre Orange : {e}")
                 continue
 
     print(f"✅ Orange Jobs terminé : {len(items)} offres récupérées au total.")
     return items
+
+
 
 
 
