@@ -4798,6 +4798,7 @@ def run_all_scrapers():
     scrapers = [
         scrape_agence_emploi_jeunes,
         scrape_rmo_jobcenter,
+        scrape_emploi_ci,
         #scrape_linkedin_jobs,
         scrape_orange_jobs,
         scrape_faci,
