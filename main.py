@@ -2477,6 +2477,162 @@ def trigger_educarriere_scrape():
 
 
 
+
+
+def scrape_rmo_jobcenter(max_pages: int = 1):
+    base_url = "https://www.rmo-jobcenter.com/fr/cote-d-ivoire/offres-emploi.html"
+    items = []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    def normalize_category(sector: str) -> str:
+        sector_lower = sector.lower()
+        if "stage" in sector_lower:
+            return "Stages"
+        elif "formation" in sector_lower:
+            return "Formations"
+        else:
+            return "Emplois" # RMO propose majoritairement des CDI/CDD/Intérim
+
+    print("🔵 Démarrage du scraping RMO Job Center...")
+
+    for page in range(1, max_pages + 1):
+        # D'après ton HTML, RMO affiche une pagination classique. Si besoin de plusieurs pages,
+        # l'URL prend généralement un paramètre ?page=X. Comme le site regroupe souvent tout, on l'anticipe.
+        url = base_url if page == 1 else f"{base_url}?page={page}"
+
+        print(f"   📄 Scraping de la page {page} ({url})...")
+
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            resp = requests.get(url, headers=headers, timeout=15, verify=False)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            print(f"      [ERREUR] Impossible de se connecter à {url} : {e}")
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        
+        # On cible toutes les lignes de tableau ayant la classe ligne_offre
+        offers = soup.select("tr.ligne_offre")
+        
+        if not offers:
+            page_title = soup.title.get_text(strip=True) if soup.title else "Titre inconnu"
+            print(f"      ℹ️ Aucune offre trouvée sur la page {page}. (Page détectée : '{page_title}')")
+            break
+
+        for offer in offers:
+            try:
+                tds = offer.select("td")
+                if len(tds) < 4:
+                    continue
+
+                # 1. Récupération de l'ID unique fourni par RMO
+                opp_id = offer.get("id") or ""
+                
+                # 2. Titre et URL de l'offre
+                a_tag = tds[1].select_one("a.bleu")
+                if not a_tag:
+                    continue
+                title = a_tag.get_text(strip=True)
+                href = a_tag.get("href", "")
+                
+                # Reconstruction de l'URL absolue
+                if href.startswith("http"):
+                    job_url = href
+                elif href.startswith("/"):
+                    job_url = f"https://www.rmo-jobcenter.com{href}"
+                else:
+                    job_url = f"https://www.rmo-jobcenter.com/{href}"
+
+                # 3. Catégorie et secteur
+                sector = tds[2].get_text(strip=True)
+                category = normalize_category(sector)
+
+                # 4. Extraction propre des dates par Regex (Format JJ/MM/AAAA)
+                raw_date_start = tds[0].get_text(strip=True)
+                date_start_match = re.search(r"\d{2}/\d{2}/\d{4}", raw_date_start)
+                date_start = date_start_match.group(0) if date_start_match else datetime.today().strftime("%d/%m/%Y")
+
+                raw_date_end = tds[3].get_text(strip=True)
+                date_end_match = re.search(r"\d{2}/\d{2}/\d{4}", raw_date_end)
+                date_end = date_end_match.group(0) if date_end_match else (datetime.today() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+                # Sécurité si l'ID HTML était manquant
+                if not opp_id:
+                    opp_id = str(generate_numeric_id(title, date_end))
+
+                source = "RMO JOB CENTER"
+                try:
+                    check_and_notify_new_source(source)
+                except Exception:
+                    pass
+
+                # Construction de l'opportunité standardisée pour Marabo
+                items.append(build_opportunity(
+                    opp_id=opp_id,
+                    title=title,
+                    category=category,
+                    source="RMO Job Center",
+                    date_start=date_start,
+                    date_end=date_end,
+                    url=job_url,
+                    badge_color="blue",
+                    description=f"Poste : {title} - Secteur : {sector}. Retrouvez tous les détails et postulez sur RMO Job Center."
+                ))
+            except Exception as e:
+                print(f"      ⚠️ Erreur lors du traitement d'une offre RMO : {e}")
+                continue
+
+    print(f"✅ RMO Job Center terminé : {len(items)} offres récupérées au total.")
+    return items
+
+
+
+
+
+
+@app.get("/scrape/rmo")
+def trigger_rmo_scrape():
+    print("🚀 Lancement manuel du scraper RMO Job Center...")
+    try:
+        # On lance le scraping
+        data = scrape_rmo_jobcenter() 
+        
+        count = 0
+        # Sauvegarde sécurisée dans Firestore avec vérification des doublons
+        for item in data:
+            item_id = item.get("id") or item.get("opp_id") 
+            
+            if not item_id:
+                continue 
+                
+            doc_ref = db.collection("opportunities").document(str(item_id))
+            
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        print(f"✅ Scraping RMO terminé : {count} nouvelles opportunités ajoutées sur {len(data)} trouvées.")
+        
+        return {
+            "status": "success", 
+            "added": count, 
+            "total_found": len(data),
+            "data": data
+        }
+        
+    except Exception as e:
+        print(f"❌ Erreur lors du déclenchement du scraping RMO : {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
 import requests
 from bs4 import BeautifulSoup
 import json
