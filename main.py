@@ -2864,6 +2864,197 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 
+
+
+
+def scrape_emploi_ci(max_pages: int = 1):
+    base_url = "https://www.emploi.ci/recherche-jobs-cote-ivoire"
+    items = []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    def normalize_category(contract_type: str, title: str) -> str:
+        text = f"{contract_type} {title}".lower()
+        if "stage" in text or "internship" in text:
+            return "Stages"
+        elif "formation" in text:
+            return "Formations"
+        else:
+            return "Emplois"
+
+    print("🔵 Démarrage du scraping Emploi.ci...")
+
+    for page in range(1, max_pages + 1):
+        # Page 1: url de base | Page 2: ?page=1 | Page 3: ?page=2...
+        url = base_url if page == 1 else f"{base_url}?page={page - 1}"
+        print(f"   📄 Scraping de la page {page} ({url})...")
+
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            resp = requests.get(url, headers=headers, timeout=15, verify=False)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            print(f"      [ERREUR] Impossible de se connecter à {url} : {e}")
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        cards = soup.select("div.card.card-job")
+        
+        if not cards:
+            print(f"      ℹ️ Aucune offre trouvée sur la page {page}.")
+            break
+
+        for card in cards:
+            try:
+                # 1. Extraction de l'URL de l'offre et de son ID unique
+                job_url = card.get("data-href") or ""
+                if not job_url:
+                    a_title = card.select_one("div.card-job-detail h3 a")
+                    if a_title:
+                        href = a_title.get("href", "")
+                        job_url = f"https://www.emploi.ci{href}" if href.startswith("/") else href
+                
+                if not job_url:
+                    continue
+
+                # On extrait l'identifiant numérique en fin d'URL
+                id_match = re.search(r"-(\d+)$", job_url.strip())
+                opp_id = id_match.group(1) if id_match else ""
+
+                # 2. Titre et Entreprise
+                title_tag = card.select_one("div.card-job-detail h3 a")
+                if not title_tag:
+                    continue
+                title = title_tag.get_text(strip=True)
+
+                company_tag = card.select_one(".card-job-company")
+                company = company_tag.get_text(strip=True) if company_tag else "Entreprise confidentielle"
+
+                # 3. Extraction de la description succincte
+                desc_tag = card.select_one(".card-job-description p")
+                description_text = desc_tag.get_text(strip=True) if desc_tag else ""
+
+                # 4. Parsing des détails du contrat et de la localisation (ul > li)
+                contract_type = "Non spécifié"
+                region = "Côte d'Ivoire"
+                li_elements = card.select("div.card-job-detail ul li")
+                
+                for li in li_elements:
+                    li_text = li.get_text().lower()
+                    if "contrat proposé" in li_text:
+                        strong = li.select_one("strong")
+                        if strong:
+                            contract_type = strong.get_text(strip=True)
+                    elif "région de" in li_text:
+                        strong = li.select_one("strong")
+                        if strong:
+                            region = strong.get_text(strip=True)
+
+                # 5. Normalisation de la catégorie Marabo
+                category = normalize_category(contract_type, title)
+# 6. Extraction et formatage de la date de publication (YYYY-MM-DD -> DD/MM/YYYY)
+                time_tag = card.select_one("time")
+                if time_tag and time_tag.get("datetime"):
+                    raw_date = time_tag.get("datetime")
+                    try:
+                        dt_start = datetime.strptime(raw_date, "%Y-%m-%d")
+                        date_start = dt_start.strftime("%d/%m/%Y")
+                    except ValueError:
+                        date_start = datetime.today().strftime("%d/%m/%Y")
+                else:
+                    date_start = datetime.today().strftime("%d/%m/%Y")
+
+                # Emploi.ci ne fournit pas de date de fin sur la carte, on ajoute 30 jours par défaut
+                dt_start_obj = datetime.strptime(date_start, "%d/%m/%Y")
+                date_end = (dt_start_obj + timedelta(days=30)).strftime("%d/%m/%Y")
+
+                if not opp_id:
+                    opp_id = str(generate_numeric_id(title, date_end))
+
+                source = "Emploi.ci"
+                try:
+                    check_and_notify_new_source(source)
+                except Exception:
+                    pass
+
+                # Choix d'une couleur dynamique pour l'affichage de l'étiquette
+                badge_color = "green" if category == "Emplois" else ("orange" if category == "Stages" else "purple")
+
+                # Assemblage de la description formatée
+                full_description = (
+                    f"Entreprise : {company}\n"
+                    f"Type de Contrat : {contract_type}\n"
+                    f"Localisation : {region}\n\n"
+                    f"Résumé de l'offre :\n{description_text}"
+                )
+
+                items.append(build_opportunity(
+                    opp_id=opp_id,
+                    title=title,
+                    category=category,
+                    source=source,
+                    date_start=date_start,
+                    date_end=date_end,
+                    url=job_url,
+                    badge_color=badge_color,
+                    description=full_description
+                ))
+
+            except Exception as e:
+                print(f"      ⚠️ Erreur lors du traitement d'une offre Emploi.ci : {e}")
+                continue
+
+    print(f"✅ Emploi.ci terminé : {len(items)} offres récupérées au total.")
+    return items
+
+
+
+
+
+
+
+@app.get("/scrape/emploi-ci")
+def trigger_emploi_ci_scrape(pages: int = 1):
+    print(f"🚀 Lancement manuel du scraper Emploi.ci ({pages} page(s))...")
+    try:
+        data = scrape_emploi_ci(max_pages=pages)
+        
+        count = 0
+        for item in data:
+            item_id = item.get("id") or item.get("opp_id")
+            if not item_id:
+                continue
+                
+            doc_ref = db.collection("opportunities").document(str(item_id))
+            
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        print(f"✅ Scraping Emploi.ci terminé : {count} nouvelles opportunités ajoutées sur {len(data)} trouvées.")
+        
+        return {
+            "status": "success",
+            "added": count,
+            "total_found": len(data),
+            "data": data
+        }
+    except Exception as e:
+        print(f"❌ Erreur lors du déclenchement du scraping Emploi.ci : {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+
+
 def scrape_orange_jobs(max_pages=3):
     # La vraie URL cachée
     url = "https://orange.jobs/widgets"
@@ -4606,6 +4797,7 @@ def run_all_scrapers():
     
     scrapers = [
         scrape_agence_emploi_jeunes,
+        scrape_rmo_jobcenter,
         #scrape_linkedin_jobs,
         scrape_orange_jobs,
         scrape_faci,
