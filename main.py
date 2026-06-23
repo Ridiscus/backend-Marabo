@@ -83,7 +83,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
 # Modèle mis à jour vers 2.0-flash (celui qui est dispo sur ta clé)
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
 EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT"))
@@ -3051,6 +3051,183 @@ def trigger_emploi_ci_scrape(pages: int = 1):
 
 
 
+def parse_un_date(date_text: str) -> str:
+    """Convertit une date en français (ex: '29 mai 2026') en format DD/MM/YYYY"""
+    months_fr = {
+        "janvier": "01", "février": "02", "mars": "03", "avril": "04",
+        "mai": "05", "juin": "06", "juillet": "07", "août": "08",
+        "septembre": "09", "octobre": "10", "novembre": "11", "décembre": "12"
+    }
+    try:
+        clean_text = date_text.lower().strip()
+        # Capture le jour, le nom du mois et l'année
+        match = re.search(r"(\d+)\s+([a-zéûâ]+)\s+(\d{4})", clean_text)
+        if match:
+            day = match.group(1).zfill(2)
+            month = months_fr.get(match.group(2), "01")
+            year = match.group(3)
+            return f"{day}/{month}/{year}"
+    except Exception:
+        pass
+    return datetime.today().strftime("%d/%m/%Y")
+
+
+
+
+def scrape_un_jobs():
+    # URL de base du portail des carrières de l'ONU
+    base_portal_url = "https://careers.un.org"
+    # À adapter avec l'URL exacte de ta recherche filtrée
+    search_url = f"{base_portal_url}/lbw/Home.aspx" 
+    items = []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
+    }
+
+    print("🔵 Démarrage du scraping UN Jobs...")
+
+    try:
+        resp = requests.get(search_url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+    except Exception as e:
+        print(f"   [ERREUR] Connexion impossible à UN Jobs : {e}")
+        return items
+
+    # Sélection des cartes d'offres d'emploi
+    cards = soup.select("div.card")
+    
+    for card in cards:
+        # On vérifie qu'il s'agit bien d'une carte d'offre ONU (présence du titre spécifique)
+        title_tag = card.select_one("h2.jbOpen_title")
+        if not title_tag:
+            continue
+
+        try:
+            # 1. Extraction du Titre
+            title = title_tag.get_text(strip=True)
+
+            # 2. Extraction de l'ID unique de l'offre
+            id_tag = card.select_one("span.jbOpen_Id")
+            opp_id = ""
+            if id_tag:
+                id_match = re.search(r"\d+", id_tag.get_text())
+                if id_match:
+                    opp_id = id_match.group(0)
+
+            # 3. Extraction du lien de postulation / description
+            link_tag = card.select_one("a[href*='jobSearchDescription']")
+            job_url = ""
+            if link_tag:
+                href = link_tag.get("href", "")
+                job_url = f"{base_portal_url}{href}" if href.startswith("/") else href
+
+            if not job_url and opp_id:
+                job_url = f"{base_portal_url}/jobSearchDescription/{opp_id}?language=fr"
+
+            # 4. Parsing du bloc de texte pour extraire les métadonnées (Lieu, Bureau, Dates)
+            card_body = card.select_one(".card-body")
+            body_text = card_body.get_text() if card_body else ""
+
+            # Extraction des variables via Regex basées sur la structure textuelle
+            location = "Non spécifié"
+            loc_match = re.search(r"Lieu d'affectation\s*:\s*([^:\n]+)", body_text)
+            if loc_match:
+                location = loc_match.group(1).replace("Date de publication", "").strip()
+
+            department = "ONU"
+            dept_match = re.search(r"Département/Bureau\s*:\s*([^:\n]+)", body_text)
+            if dept_match:
+                department = dept_match.group(1).replace("Date de publication", "").strip()
+
+            family = "Général"
+            family_match = re.search(r"Famille d'emplois\s*:\s*([^:\n]+)", body_text)
+            if family_match:
+                family = family_match.group(1).replace("Catégorie", "").strip()
+
+            # 5. Gestion des Dates
+            date_start = datetime.today().strftime("%d/%m/%Y")
+            date_end = datetime.today().strftime("%d/%m/%Y")
+            start_match = re.search(r"Date de publication\s*:\s*([^:\n]+)", body_text)
+            if start_match:
+                date_start = parse_un_date(start_match.group(1).replace("Date limite", ""))
+
+            end_match = re.search(r"Date limite\s*:\s*([^:\n]+)", body_text)
+            if end_match:
+                date_end = parse_un_date(end_match.group(1))
+
+            # 6. Normalisation de la catégorie et couleur du badge
+            category = "Emplois"
+            if "stage" in title.lower() or "internship" in title.lower() or "stagiere" in title.lower():
+                category = "Stages"
+            
+            badge_color = "blue" if category == "Emplois" else "orange"
+
+            # 7. Construction de la description enrichie
+            full_description = (
+                f"Organisation : {department}\n"
+                f"Famille d'emplois : {family}\n"
+                f"Lieu d'affectation : {location}\n\n"
+                f"Pour consulter l'intégralité des prérequis et des termes de référence de ce poste, "
+                f"veuillez cliquer sur le bouton de postulation ci-dessous."
+            )
+
+            # Sécurité ID
+            if not opp_id:
+                continue
+
+            # Appel de la méthode globale de ton architecture pour structurer l'objet
+            items.append(build_opportunity(
+                opp_id=f"un-{opp_id}", # Préfixe pour éviter les collisions d'IDs entre sites
+                title=title,
+                category=category,
+                source="UN Jobs",
+                date_start=date_start,
+                date_end=date_end,
+                url=job_url,
+                badge_color=badge_color,
+                description=full_description
+            ))
+
+        except Exception as e:
+            print(f"      ⚠️ Erreur lors du traitement d'une offre ONU : {e}")
+            continue
+
+    print(f"✅ UN Jobs terminé : {len(items)} offres récupérées.")
+    return items
+
+
+@app.get("/scrape/un-jobs")
+def trigger_un_jobs_scrape():
+    print("🚀 Lancement manuel du scraper UN Jobs...")
+    try:
+        data = scrape_un_jobs()
+        
+        count = 0
+        for item in data:
+            item_id = item.get("id") or item.get("opp_id")
+            if not item_id:
+                continue
+                
+            doc_ref = db.collection("opportunities").document(str(item_id))
+            
+            # Évite d'écraser une opportunité déjà existante
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        print(f"✅ Scraping UN Jobs terminé : {count} nouvelles offres ajoutées sur {len(data)} trouvées.")
+        
+        return {
+            "status": "success",
+            "added": count,
+            "total_found": len(data),
+            "data": data
+        }
+    except Exception as e:
+        print(f"❌ Erreur lors du déclenchement du scraping UN Jobs : {e}")
+        return {"status": "error", "message": str(e)}
 
 
 
