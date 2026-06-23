@@ -39,6 +39,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, BackgroundTasks # N'oublie pas d'importer BackgroundTasks
 
 
+
+from playwright.async_api import async_playwright
+
 from typing import Optional # 💡 N'oublie pas cet import tout en haut de ton fichier !
 from fastapi import UploadFile, File, Form
 from fastapi.responses import JSONResponse
@@ -3051,8 +3054,10 @@ def trigger_emploi_ci_scrape(pages: int = 1):
 
 
 
+
+
+
 def parse_un_date(date_text: str) -> str:
-    """Convertit une date en français (ex: '29 mai 2026') en format DD/MM/YYYY"""
     months_fr = {
         "janvier": "01", "février": "02", "mars": "03", "avril": "04",
         "mai": "05", "juin": "06", "juillet": "07", "août": "08",
@@ -3060,7 +3065,6 @@ def parse_un_date(date_text: str) -> str:
     }
     try:
         clean_text = date_text.lower().strip()
-        # Capture le jour, le nom du mois et l'année
         match = re.search(r"(\d+)\s+([a-zéûâ]+)\s+(\d{4})", clean_text)
         if match:
             day = match.group(1).zfill(2)
@@ -3072,43 +3076,53 @@ def parse_un_date(date_text: str) -> str:
     return datetime.today().strftime("%d/%m/%Y")
 
 
-
-
-def scrape_un_jobs():
-    # URL de base du portail des carrières de l'ONU
+async def scrape_un_jobs():
     base_portal_url = "https://careers.un.org"
-    # À adapter avec l'URL exacte de ta recherche filtrée
+    # Remplace par l'URL exacte de ta recherche (ex: filtrée sur Abidjan)
     search_url = f"{base_portal_url}/lbw/Home.aspx" 
     items = []
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
-    }
+    print("🔵 Démarrage du scraping UN Jobs avec Playwright...")
 
-    print("🔵 Démarrage du scraping UN Jobs...")
+    async with async_playwright() as p:
+        # Lancement du navigateur en mode sans interface (headless)
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36"
+        )
+        page = await context.new_page()
+        
+        try:
+            # Navigation vers la page
+            await page.goto(search_url, timeout=30000, wait_until="networkidle")
+            
+            # ATTENTE CRUCIALE : On attend que le premier titre d'offre Angular apparaisse dans le DOM
+            print("   ⏳ Attente du chargement des composants Angular...")
+            await page.wait_for_selector("h2.jbOpen_title", timeout=15000)
+            
+            # Une fois chargé, on récupère le contenu HTML complet et généré
+            html_content = await page.content()
+        except Exception as e:
+            print(f"   [ERREUR] Timeout ou aucun élément trouvé : {e}")
+            await browser.close()
+            return items
 
-    try:
-        resp = requests.get(search_url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-    except Exception as e:
-        print(f"   [ERREUR] Connexion impossible à UN Jobs : {e}")
-        return items
+        await browser.close()
 
-    # Sélection des cartes d'offres d'emploi
+    # On donne le HTML fully-rendered à BeautifulSoup
+    soup = BeautifulSoup(html_content, "html.parser")
     cards = soup.select("div.card")
     
+    print(f"   📄 {len(cards)} cartes potentielles trouvées dans le DOM généré.")
+
     for card in cards:
-        # On vérifie qu'il s'agit bien d'une carte d'offre ONU (présence du titre spécifique)
         title_tag = card.select_one("h2.jbOpen_title")
         if not title_tag:
             continue
 
         try:
-            # 1. Extraction du Titre
             title = title_tag.get_text(strip=True)
 
-            # 2. Extraction de l'ID unique de l'offre
             id_tag = card.select_one("span.jbOpen_Id")
             opp_id = ""
             if id_tag:
@@ -3116,7 +3130,6 @@ def scrape_un_jobs():
                 if id_match:
                     opp_id = id_match.group(0)
 
-            # 3. Extraction du lien de postulation / description
             link_tag = card.select_one("a[href*='jobSearchDescription']")
             job_url = ""
             if link_tag:
@@ -3126,11 +3139,9 @@ def scrape_un_jobs():
             if not job_url and opp_id:
                 job_url = f"{base_portal_url}/jobSearchDescription/{opp_id}?language=fr"
 
-            # 4. Parsing du bloc de texte pour extraire les métadonnées (Lieu, Bureau, Dates)
             card_body = card.select_one(".card-body")
             body_text = card_body.get_text() if card_body else ""
 
-            # Extraction des variables via Regex basées sur la structure textuelle
             location = "Non spécifié"
             loc_match = re.search(r"Lieu d'affectation\s*:\s*([^:\n]+)", body_text)
             if loc_match:
@@ -3140,15 +3151,15 @@ def scrape_un_jobs():
             dept_match = re.search(r"Département/Bureau\s*:\s*([^:\n]+)", body_text)
             if dept_match:
                 department = dept_match.group(1).replace("Date de publication", "").strip()
-
+            
             family = "Général"
             family_match = re.search(r"Famille d'emplois\s*:\s*([^:\n]+)", body_text)
             if family_match:
                 family = family_match.group(1).replace("Catégorie", "").strip()
 
-            # 5. Gestion des Dates
             date_start = datetime.today().strftime("%d/%m/%Y")
             date_end = datetime.today().strftime("%d/%m/%Y")
+
             start_match = re.search(r"Date de publication\s*:\s*([^:\n]+)", body_text)
             if start_match:
                 date_start = parse_un_date(start_match.group(1).replace("Date limite", ""))
@@ -3157,29 +3168,23 @@ def scrape_un_jobs():
             if end_match:
                 date_end = parse_un_date(end_match.group(1))
 
-            # 6. Normalisation de la catégorie et couleur du badge
             category = "Emplois"
-            if "stage" in title.lower() or "internship" in title.lower() or "stagiere" in title.lower():
+            if "stage" in title.lower() or "internship" in title.lower():
                 category = "Stages"
             
             badge_color = "blue" if category == "Emplois" else "orange"
-
-            # 7. Construction de la description enrichie
             full_description = (
                 f"Organisation : {department}\n"
                 f"Famille d'emplois : {family}\n"
                 f"Lieu d'affectation : {location}\n\n"
-                f"Pour consulter l'intégralité des prérequis et des termes de référence de ce poste, "
-                f"veuillez cliquer sur le bouton de postulation ci-dessous."
+                f"Pour consulter les prérequis de ce poste, veuillez cliquer sur le bouton ci-dessous."
             )
 
-            # Sécurité ID
             if not opp_id:
                 continue
 
-            # Appel de la méthode globale de ton architecture pour structurer l'objet
             items.append(build_opportunity(
-                opp_id=f"un-{opp_id}", # Préfixe pour éviter les collisions d'IDs entre sites
+                opp_id=f"un-{opp_id}",
                 title=title,
                 category=category,
                 source="UN Jobs",
@@ -3191,7 +3196,7 @@ def scrape_un_jobs():
             ))
 
         except Exception as e:
-            print(f"      ⚠️ Erreur lors du traitement d'une offre ONU : {e}")
+            print(f"      ⚠️ Erreur traitement offre : {e}")
             continue
 
     print(f"✅ UN Jobs terminé : {len(items)} offres récupérées.")
@@ -3199,10 +3204,11 @@ def scrape_un_jobs():
 
 
 @app.get("/scrape/un-jobs")
-def trigger_un_jobs_scrape():
-    print("🚀 Lancement manuel du scraper UN Jobs...")
+async def trigger_un_jobs_scrape():
+    print("🚀 Lancement manuel du scraper UN Jobs (Mode Asynchrone)...")
     try:
-        data = scrape_un_jobs()
+        # Ajout du await ici car la fonction est asynchrone désormais
+        data = await scrape_un_jobs()
         
         count = 0
         for item in data:
@@ -3212,12 +3218,11 @@ def trigger_un_jobs_scrape():
                 
             doc_ref = db.collection("opportunities").document(str(item_id))
             
-            # Évite d'écraser une opportunité déjà existante
             if not doc_ref.get().exists:
                 doc_ref.set(item)
                 count += 1
                 
-        print(f"✅ Scraping UN Jobs terminé : {count} nouvelles offres ajoutées sur {len(data)} trouvées.")
+        print(f"✅ Scraping UN Jobs terminé : {count} nouvelles offres ajoutées.")
         
         return {
             "status": "success",
@@ -3228,7 +3233,6 @@ def trigger_un_jobs_scrape():
     except Exception as e:
         print(f"❌ Erreur lors du déclenchement du scraping UN Jobs : {e}")
         return {"status": "error", "message": str(e)}
-
 
 
 
