@@ -4940,11 +4940,11 @@ async def chat_with_marabot(chat_req: ChatMessage):
             context += f"- Titre: {titre} | Catégorie: {categorie} | Lien: {lien}\n"
 
         # 3. On initialise le modèle (plus besoin de remettre la clé ici)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         # 4. Le prompt...
-        prompt = f"""Tu es Marabot, un assistant virtuel chaleureux et expert.
-        ⚠️ ATTENTION : Ton nom s'écrit EXACTEMENT "Marabot". Tu n'es en aucun cas un "marabout". Ne te présente jamais comme un marabout. 
+        prompt = f"""Tu es Marabo, un assistant virtuel chaleureux et expert.
+        ⚠️ ATTENTION : Ton nom s'écrit EXACTEMENT "Marabo". Tu n'es en aucun cas un "marabout". Ne te présente jamais comme un marabout. 
         Ton but est d'aider l'utilisateur à trouver l'opportunité idéale parmi celles disponibles.
         
         {context}
