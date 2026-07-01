@@ -3787,79 +3787,95 @@ def scrape_devpost_hackathons():
 
 
 
+@app.get("/test-option-carriere")
+def test_option_carriere_endpoint():
+    """
+    Route de test isolée pour Option Carrière.
+    Retourne directement la liste des opportunités trouvées sans écrire dans Firebase.
+    """
+    print("🧪 [TEST] Lancement isolé du scraper Option Carrière...")
+    try:
+        results = scrape_option_carriere()
+        
+        return {
+            "status": "Succès",
+            "total_found": len(results),
+            "data": results # Affiche les objets structurés pour vérification visuelle
+        }
+    except Exception as e:
+        return {
+            "status": "Erreur",
+            "message": f"Le scraper a planté : {str(e)}"
+        }
 
 
-# ---------- SCRAPING OPTION CARRIERE (Version Validée) ----------
+
+# ---------- SCRAPING OPTION CARRIERE (Version Corrigée) ----------
 def scrape_option_carriere():
-    # URL directe avec les paramètres
     url = "https://www.optioncarriere.ci/recherche/emplois?l=C%C3%B4te+d%27Ivoire&sort=date"
     items = []
     driver = None
 
     try:
         print("🔄 Scraping Option Carrière via Selenium...")
-        
-        # 1. Utiliser ton driver configuré (celui qui marche pour Novojob)
         driver = get_driver() 
         driver.get(url)
-
-        # 2. Pause pour laisser le site charger et passer les vérifications basiques
         time.sleep(5) 
 
-        # 3. On récupère le HTML généré par le navigateur
         soup = BeautifulSoup(driver.page_source, "html.parser")
 
-        # 4. On reprend ta logique de parsing qui était bonne
+        # Sélectionne les articles d'offres
         jobs = soup.select("article.job") 
         print(f"📊 Selenium a trouvé {len(jobs)} offres.")
 
         for job in jobs:
             try:
-                # Titre et Lien
-                title_tag = job.select_one("header h3 a") # ou h2 selon le test
+                # 1. Titre et Lien (Structure stable : header h2 a)
+                title_tag = job.select_one("header h2 a") or job.select_one("header h3 a")
                 if not title_tag: 
-                    # Fallback au cas où ils changent h3 en h2
-                    title_tag = job.select_one("header h2 a")
-                
-                if not title_tag: continue
+                    continue
 
                 title = title_tag.get_text(strip=True)
                 link = "https://www.optioncarriere.ci" + title_tag['href']
 
-                # Entreprise
+                # 2. Entreprise (p.company a)
                 company_tag = job.select_one("p.company")
                 company = company_tag.get_text(strip=True) if company_tag else "Entreprise confidentielle"
 
-                # Localisation
+                # 3. Localisation (ul.location li)
                 loc_tag = job.select_one("ul.location li")
                 location = loc_tag.get_text(strip=True) if loc_tag else "Abidjan"
 
-                # Description
+                # 4. Description (div.desc)
                 desc_tag = job.select_one("div.desc")
                 description = desc_tag.get_text(strip=True) if desc_tag else f"Poste chez {company}"
 
-                # Date
-                date_tag = job.select_one("footer ul.tags span.badge")
+                # 5. Extraction de la Date (Correction du sélecteur CSS)
+                date_tag = job.select_one("footer span.badge")
                 raw_date = date_tag.get_text(strip=True).lower() if date_tag else ""
                 
                 date_start_obj = datetime.today()
-                if "hier" in raw_date:
+                
+                # Gestion fine des mentions temporelles ("heures", "hier", "jours")
+                if "heure" in raw_date:
+                    # Si c'est publié il y a quelques heures, c'est aujourd'hui
+                    pass 
+                elif "hier" in raw_date:
                     date_start_obj = date_start_obj - timedelta(days=1)
                 elif "jour" in raw_date:
                     try:
                         days_ago = int(re.search(r'\d+', raw_date).group())
                         date_start_obj = date_start_obj - timedelta(days=days_ago)
-                    except: pass
+                    except: 
+                        pass
                 
                 date_start = date_start_obj.strftime("%d/%m/%Y")
                 date_end = (date_start_obj + timedelta(days=45)).strftime("%d/%m/%Y")
 
                 opp_id = str(generate_numeric_id(title, company))
-
-
                 source = "OPTION CARRIERE"
 
-                # ✅ AJOUT ICI
+                # Sécurité Firebase / Notif
                 check_and_notify_new_source(source)
 
                 items.append(build_opportunity(
@@ -3882,16 +3898,11 @@ def scrape_option_carriere():
         print(f"❌ Erreur Selenium Option Carrière: {e}")
 
     finally:
-        # Toujours fermer le driver !
         if driver:
             driver.quit()
             print("✅ Driver Option Carrière fermé.")
 
     return items
-
-
-
-
 
 
 
@@ -5253,20 +5264,20 @@ async def lifespan(app: FastAPI):
 
 
 
-@app.get("/purge-sources")
-def purge_sources_endpoint(background_tasks: BackgroundTasks):
-    """
-    Route de secours pour nettoyer Devpost et Kaggle en arrière-plan instantanément
-    sans toucher aux scrapers.
-    """
-    # Exécute la purge de façon isolée dans les tâches de fond de FastAPI
-    background_tasks.add_task(delete_devpost_and_kaggle_from_db)
+# @app.get("/purge-sources")
+# def purge_sources_endpoint(background_tasks: BackgroundTasks):
+#     """
+#     Route de secours pour nettoyer Devpost et Kaggle en arrière-plan instantanément
+#     sans toucher aux scrapers.
+#     """
+#     # Exécute la purge de façon isolée dans les tâches de fond de FastAPI
+#     background_tasks.add_task(delete_devpost_and_kaggle_from_db)
     
-    return {
-        "status": "Succès",
-        "message": "La purge de Devpost et Kaggle a été lancée de manière isolée en arrière-plan !",
-        "action": "Veuillez surveiller les logs Render pour confirmer le nombre d'éléments supprimés."
-    }
+#     return {
+#         "status": "Succès",
+#         "message": "La purge de Devpost et Kaggle a été lancée de manière isolée en arrière-plan !",
+#         "action": "Veuillez surveiller les logs Render pour confirmer le nombre d'éléments supprimés."
+#     }
 
 
 
