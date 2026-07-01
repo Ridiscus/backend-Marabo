@@ -4989,12 +4989,12 @@ def run_all_scrapers():
         scrape_ena_directs,
         scrape_infas,
         scrape_minef_concours,
-        scrape_devpost_hackathons,
+        #scrape_devpost_hackathons,
         scrape_novojob,
         scrape_daad_scholarship,
         scrape_educarriere,
         scrape_educarriere_formations,
-        scrape_kaggle_competitions,
+        #scrape_kaggle_competitions,
         scrape_option_carriere,
         scrape_projob_ivoire,
         scrape_sociumjob,
@@ -5172,17 +5172,63 @@ def delete_expired_opportunities():
         
     return deleted
 
+
+
+
+
+def delete_devpost_and_kaggle_from_db():
+    print("🧹 [PURGE] Recherche et suppression des opportunités Devpost et Kaggle...")
+    deleted_count = 0
+    
+    try:
+        # Récupération de tous les documents de la collection
+        all_docs = db.collection("opportunities").stream()
+        
+        for doc in all_docs:
+            data = doc.to_dict()
+            source_field = str(data.get("source", "")).strip().upper()
+            
+            # Cible les deux sources à éliminer
+            if source_field in ["DEVPOST", "KAGGLE"]:
+                print(f"🗑️ [PURGE] Suppression de : {data.get('title', 'Sans titre')} (Source: {data.get('source')})")
+                
+                # 1. Suppression du document principal
+                doc.reference.delete()
+                
+                # 2. Nettoyage des notifications fantômes liées à cet ID
+                try:
+                    delete_notifications_for_opportunity(doc.id)
+                except Exception as e_notif:
+                    print(f"⚠️ Erreur nettoyage notif pour {doc.id}: {e_notif}")
+                    
+                deleted_count += 1
+                
+        print(f"✨ [PURGE] Terminée avec succès ! {deleted_count} documents supprimés.")
+    except Exception as e:
+        print(f"❌ Erreur critique lors de la purge : {e}")
+        
+    return deleted_count
+
+
+
+
 # --- CONFIGURATION DU LIFESPAN FINAL ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Démarrage du serveur et du planificateur...")
     
+    # 🔥 EXÉCUTION DE LA PURGE DES SOURCES SUR LESQUELLES TU NE VEUX PLUS TRAVAILLER
+    try:
+        delete_devpost_and_kaggle_from_db()
+    except Exception as e:
+        print(f"⚠️ Impossible d'exécuter la purge au démarrage : {e}")
+        
     # On s'assure d'utiliser le bon format de date pour le scheduler
     now = datetime.now()
     
     scheduler = BackgroundScheduler()
     
-    # 1. SCRAPING : Toutes les 12 heures (Lancement immédiat en arrière-plan)
+    # 1. SCRAPING : Toutes les 12 heures
     scheduler.add_job(
         run_all_scrapers, 
         'interval', 
@@ -5195,15 +5241,15 @@ async def lifespan(app: FastAPI):
         notify_new_opportunities, 
         'interval', 
         minutes=2,
-        next_run_time=now # On vérifie aussi les notifs dès le démarrage
+        next_run_time=now
     )
     
-    # 3. NETTOYAGE : Toutes les 24 heures (DÉCOMMENTÉ ET ACTIVÉ)
+    # 3. NETTOYAGE : Toutes les 24 heures
     scheduler.add_job(
         delete_expired_opportunities, 
         'interval', 
         hours=24,
-        next_run_time=now # On fait un premier nettoyage au démarrage
+        next_run_time=now
     )
 
     scheduler.start()
@@ -5212,8 +5258,6 @@ async def lifespan(app: FastAPI):
     
     print("🛑 Arrêt du planificateur...")
     scheduler.shutdown()
-
-
 
 
 
