@@ -1154,27 +1154,32 @@ from selenium.webdriver.chrome.options import Options
 def get_driver():
     chrome_options = Options()
     
-    # Options indispensables pour le serveur
+    # --- 1. Options de performance et mode headless moderne ---
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    # --- 2. Blindage anti-bots (Masquage de Selenium) ---
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    
+    # Un User-Agent récent de vrai navigateur (Crucial)
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
-    # 🐧 Détection de l'environnement Linux (Serveur Render / Railway)
-    if os.name != 'nt':  # Si ce n'est pas Windows, on est sur Linux
+    # --- 3. Détection / Installation automatique de Chrome sur Linux ---
+    if os.name != 'nt':  # Si ce n'est pas Windows, on est sur Linux (Render/Railway)
         print("🐧 [SERVEUR LINUX] Vérification de la présence de Chrome...")
         
-        # Le chemin magique où Playwright installe Chrome de manière isolée
-        # On va forcer l'installation de Chromium si ce n'est pas déjà fait
+        # Le chemin où Playwright installe Chrome de manière isolée
         chrome_install_dir = os.path.expanduser("~/.cache/ms-playwright")
         
-        # Commande pour forcer le téléchargement de Chrome par Playwright si le dossier n'existe pas
+        # Forcer le téléchargement de Chrome par Playwright si absent
         if not os.path.exists(chrome_install_dir):
             print("📥 Chrome introuvable. Installation automatique du binaire Chrome en cours...")
             try:
-                # Cette commande télécharge un vrai binaire Chrome/Chromium utilisable par Selenium
                 subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
                 print("✅ Chrome installé avec succès sur le serveur !")
             except Exception as e_install:
@@ -1187,26 +1192,31 @@ def get_driver():
                 if file in ["chrome", "chromium"] and "chrome-linux" in root:
                     binary_path = os.path.join(root, file)
                     break
-            if binary_path: break
+            if binary_path: 
+                break
 
         if binary_path:
             print(f"🚀 Chrome autonome trouvé à : {binary_path}")
             chrome_options.binary_location = binary_path
         else:
-            # Fallback sur les chemins classiques si l'installation automatique a échoué
-            for path in ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"]:
+            # Fallback sur les chemins classiques Linux
+            for path in ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/opt/google/chrome/google-chrome"]:
                 if os.path.exists(path):
                     chrome_options.binary_location = path
                     print(f"🚀 Chrome standard trouvé à : {path}")
                     break
-
     else:
         print("💻 [LOCAL WINDOWS] Utilisation de la configuration par défaut de ton PC...")
 
-    # Lancement du driver Selenium
+    # --- 4. Lancement du driver Selenium avec injection JavaScript de sécurité ---
     try:
-        # On laisse Selenium Manager trouver et installer le ChromeDriver correspondant tout seul
         driver = webdriver.Chrome(options=chrome_options)
+        
+        # 🧪 SCRIPT MAGIQUE : Efface toute trace de 'navigator.webdriver' à chaque changement de page
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        })
+        
         return driver
     except Exception as e:
         print(f"❌ Erreur critique Selenium : {e}")
@@ -3878,7 +3888,7 @@ def test_option_carriere_endpoint():
 
 
 
-# ---------- SCRAPING OPTION CARRIERE (Version Corrigée) ----------
+# ---------- SCRAPING OPTION CARRIERE (Version Blindée) ----------
 def scrape_option_carriere():
     url = "https://www.optioncarriere.ci/recherche/emplois?l=C%C3%B4te+d%27Ivoire&sort=date"
     items = []
@@ -3888,17 +3898,27 @@ def scrape_option_carriere():
         print("🔄 Scraping Option Carrière via Selenium...")
         driver = get_driver() 
         driver.get(url)
-        time.sleep(5) 
+        
+        # On attend un peu plus pour laisser passer les éventuels scripts de vérification du site
+        time.sleep(7) 
 
-        soup = BeautifulSoup(driver.page_source, "html.parser")
+        html_content = driver.page_source
+        soup = BeautifulSoup(html_content, "html.parser")
 
         # Sélectionne les articles d'offres
         jobs = soup.select("article.job") 
         print(f"📊 Selenium a trouvé {len(jobs)} offres.")
 
+        # 🔍 LOG DE SÉCURITÉ : Si toujours 0, on regarde si on est bloqué par un captcha
+        if len(jobs) == 0:
+            if "cloudflare" in html_content.lower() or "attention" in html_content.lower():
+                print("⚠️ [ALERTE] Détecté par la sécurité Cloudflare ou page de blocage d'Option Carrière.")
+            else:
+                print("📝 Structure reçue (extrait) :", html_content[:500])
+
         for job in jobs:
             try:
-                # 1. Titre et Lien (Structure stable : header h2 a)
+                # 1. Titre et Lien (Sélecteur précis basé sur ton HTML)
                 title_tag = job.select_one("header h2 a") or job.select_one("header h3 a")
                 if not title_tag: 
                     continue
@@ -3906,27 +3926,25 @@ def scrape_option_carriere():
                 title = title_tag.get_text(strip=True)
                 link = "https://www.optioncarriere.ci" + title_tag['href']
 
-                # 2. Entreprise (p.company a)
+                # 2. Entreprise (Gère la balise brute ou le lien interne)
                 company_tag = job.select_one("p.company")
                 company = company_tag.get_text(strip=True) if company_tag else "Entreprise confidentielle"
 
-                # 3. Localisation (ul.location li)
+                # 3. Localisation
                 loc_tag = job.select_one("ul.location li")
                 location = loc_tag.get_text(strip=True) if loc_tag else "Abidjan"
 
-                # 4. Description (div.desc)
+                # 4. Description
                 desc_tag = job.select_one("div.desc")
                 description = desc_tag.get_text(strip=True) if desc_tag else f"Poste chez {company}"
 
-                # 5. Extraction de la Date (Correction du sélecteur CSS)
+                # 5. Date (Sélecteur corrigé d'après ta structure réelle)
                 date_tag = job.select_one("footer span.badge")
                 raw_date = date_tag.get_text(strip=True).lower() if date_tag else ""
                 
                 date_start_obj = datetime.today()
                 
-                # Gestion fine des mentions temporelles ("heures", "hier", "jours")
                 if "heure" in raw_date:
-                    # Si c'est publié il y a quelques heures, c'est aujourd'hui
                     pass 
                 elif "hier" in raw_date:
                     date_start_obj = date_start_obj - timedelta(days=1)
@@ -3943,7 +3961,6 @@ def scrape_option_carriere():
                 opp_id = str(generate_numeric_id(title, company))
                 source = "OPTION CARRIERE"
 
-                # Sécurité Firebase / Notif
                 check_and_notify_new_source(source)
 
                 items.append(build_opportunity(
