@@ -1099,50 +1099,118 @@ def send_opportunity_notification_to_all(opportunity_title, company_name, catego
 
 
 # ---------- CONFIGURATION SELENIUM (CORRIGÉE) ----------
+# def get_driver():
+#     chrome_options = Options()
+    
+#     # --- 1. Options CRITIQUES pour le serveur (Docker/Railway) ---
+#     chrome_options.add_argument("--headless=new")       # Indispensable : Pas d'interface graphique
+#     chrome_options.add_argument("--no-sandbox")         # Indispensable pour Docker
+#     chrome_options.add_argument("--disable-dev-shm-usage") # Évite les crashs de mémoire partagée
+#     chrome_options.add_argument("--disable-gpu")
+#     chrome_options.add_argument("--window-size=1920,1080")
+#     chrome_options.add_argument("--start-maximized")
+    
+#     # User Agent (pour ne pas être bloqué par les sites)
+#     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+#     # --- 2. Astuce pour trouver Chrome sur Linux (Railway/Render) ---
+#     # Sur ton PC Windows, ça sera ignoré. Sur le serveur, ça trouvera le bon chemin.
+#     possible_paths = [
+#         "/usr/bin/google-chrome",
+#         "/usr/bin/google-chrome-stable",
+#         "/opt/google/chrome/google-chrome"
+#     ]
+    
+#     binary_path = None
+#     for path in possible_paths:
+#         if os.path.exists(path):
+#             binary_path = path
+#             break
+            
+#     if binary_path:
+#         print(f"🚀 Chrome détecté sur le serveur à : {binary_path}")
+#         chrome_options.binary_location = binary_path
+#     else:
+#         print("💻 Chrome non trouvé dans les chemins Linux, utilisation du chemin système par défaut (Windows/Mac)")
+
+#     # --- 3. Lancement du driver ---
+#     try:
+#         service = Service(ChromeDriverManager().install())
+#         driver = webdriver.Chrome(service=service, options=chrome_options)
+#         return driver
+#     except Exception as e:
+#         print(f"❌ Erreur critique lors du lancement de Selenium : {e}")
+#         raise e
+
+
+
+
+import os
+import subprocess
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+
 def get_driver():
     chrome_options = Options()
     
-    # --- 1. Options CRITIQUES pour le serveur (Docker/Railway) ---
-    chrome_options.add_argument("--headless=new")       # Indispensable : Pas d'interface graphique
-    chrome_options.add_argument("--no-sandbox")         # Indispensable pour Docker
-    chrome_options.add_argument("--disable-dev-shm-usage") # Évite les crashs de mémoire partagée
+    # Options indispensables pour le serveur
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--start-maximized")
-    
-    # User Agent (pour ne pas être bloqué par les sites)
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-    # --- 2. Astuce pour trouver Chrome sur Linux (Railway/Render) ---
-    # Sur ton PC Windows, ça sera ignoré. Sur le serveur, ça trouvera le bon chemin.
-    possible_paths = [
-        "/usr/bin/google-chrome",
-        "/usr/bin/google-chrome-stable",
-        "/opt/google/chrome/google-chrome"
-    ]
-    
-    binary_path = None
-    for path in possible_paths:
-        if os.path.exists(path):
-            binary_path = path
-            break
-            
-    if binary_path:
-        print(f"🚀 Chrome détecté sur le serveur à : {binary_path}")
-        chrome_options.binary_location = binary_path
-    else:
-        print("💻 Chrome non trouvé dans les chemins Linux, utilisation du chemin système par défaut (Windows/Mac)")
+    # 🐧 Détection de l'environnement Linux (Serveur Render / Railway)
+    if os.name != 'nt':  # Si ce n'est pas Windows, on est sur Linux
+        print("🐧 [SERVEUR LINUX] Vérification de la présence de Chrome...")
+        
+        # Le chemin magique où Playwright installe Chrome de manière isolée
+        # On va forcer l'installation de Chromium si ce n'est pas déjà fait
+        chrome_install_dir = os.path.expanduser("~/.cache/ms-playwright")
+        
+        # Commande pour forcer le téléchargement de Chrome par Playwright si le dossier n'existe pas
+        if not os.path.exists(chrome_install_dir):
+            print("📥 Chrome introuvable. Installation automatique du binaire Chrome en cours...")
+            try:
+                # Cette commande télécharge un vrai binaire Chrome/Chromium utilisable par Selenium
+                subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
+                print("✅ Chrome installé avec succès sur le serveur !")
+            except Exception as e_install:
+                print(f"⚠️ Échec de l'installation automatique de Chrome: {e_install}")
 
-    # --- 3. Lancement du driver ---
+        # Recherche du binaire téléchargé dans les sous-dossiers
+        binary_path = None
+        for root, dirs, files in os.walk(chrome_install_dir):
+            for file in files:
+                if file in ["chrome", "chromium"] and "chrome-linux" in root:
+                    binary_path = os.path.join(root, file)
+                    break
+            if binary_path: break
+
+        if binary_path:
+            print(f"🚀 Chrome autonome trouvé à : {binary_path}")
+            chrome_options.binary_location = binary_path
+        else:
+            # Fallback sur les chemins classiques si l'installation automatique a échoué
+            for path in ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"]:
+                if os.path.exists(path):
+                    chrome_options.binary_location = path
+                    print(f"🚀 Chrome standard trouvé à : {path}")
+                    break
+
+    else:
+        print("💻 [LOCAL WINDOWS] Utilisation de la configuration par défaut de ton PC...")
+
+    # Lancement du driver Selenium
     try:
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # On laisse Selenium Manager trouver et installer le ChromeDriver correspondant tout seul
+        driver = webdriver.Chrome(options=chrome_options)
         return driver
     except Exception as e:
-        print(f"❌ Erreur critique lors du lancement de Selenium : {e}")
+        print(f"❌ Erreur critique Selenium : {e}")
         raise e
-
-
 
 
 
