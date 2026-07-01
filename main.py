@@ -5173,9 +5173,6 @@ def delete_expired_opportunities():
     return deleted
 
 
-
-
-
 def delete_devpost_and_kaggle_from_db():
     print("🧹 [PURGE] Recherche et suppression des opportunités Devpost et Kaggle...")
     deleted_count = 0
@@ -5186,11 +5183,12 @@ def delete_devpost_and_kaggle_from_db():
         
         for doc in all_docs:
             data = doc.to_dict()
-            source_field = str(data.get("source", "")).strip().upper()
+            # On passe tout en minuscules pour éviter les pièges d'orthographe
+            source_field = str(data.get("source", "")).strip().lower()
             
-            # Cible les deux sources à éliminer
-            if source_field in ["DEVPOST", "KAGGLE"]:
-                print(f"🗑️ [PURGE] Suppression de : {data.get('title', 'Sans titre')} (Source: {data.get('source')})")
+            # Cible large : capture "Kaggle", "KAGGLE", "Devpost", "devpost", etc.
+            if "kaggle" in source_field or "devpost" in source_field:
+                print(f"🗑️ [PURGE] Suppression détectée : {data.get('title', 'Sans titre')} (Source en BD: {data.get('source')})")
                 
                 # 1. Suppression du document principal
                 doc.reference.delete()
@@ -5203,12 +5201,11 @@ def delete_devpost_and_kaggle_from_db():
                     
                 deleted_count += 1
                 
-        print(f"✨ [PURGE] Terminée avec succès ! {deleted_count} documents supprimés.")
+        print(f"✨ [PURGE] Opération terminée. {deleted_count} documents supprimés au total.")
     except Exception as e:
         print(f"❌ Erreur critique lors de la purge : {e}")
         
     return deleted_count
-
 
 
 
@@ -5217,12 +5214,6 @@ def delete_devpost_and_kaggle_from_db():
 async def lifespan(app: FastAPI):
     print("🚀 Démarrage du serveur et du planificateur...")
     
-    # 🔥 EXÉCUTION DE LA PURGE DES SOURCES SUR LESQUELLES TU NE VEUX PLUS TRAVAILLER
-    try:
-        delete_devpost_and_kaggle_from_db()
-    except Exception as e:
-        print(f"⚠️ Impossible d'exécuter la purge au démarrage : {e}")
-        
     # On s'assure d'utiliser le bon format de date pour le scheduler
     now = datetime.now()
     
@@ -5259,6 +5250,23 @@ async def lifespan(app: FastAPI):
     print("🛑 Arrêt du planificateur...")
     scheduler.shutdown()
 
+
+
+
+@app.get("/purge-sources")
+def purge_sources_endpoint(background_tasks: BackgroundTasks):
+    """
+    Route de secours pour nettoyer Devpost et Kaggle en arrière-plan instantanément
+    sans toucher aux scrapers.
+    """
+    # Exécute la purge de façon isolée dans les tâches de fond de FastAPI
+    background_tasks.add_task(delete_devpost_and_kaggle_from_db)
+    
+    return {
+        "status": "Succès",
+        "message": "La purge de Devpost et Kaggle a été lancée de manière isolée en arrière-plan !",
+        "action": "Veuillez surveiller les logs Render pour confirmer le nombre d'éléments supprimés."
+    }
 
 
 
