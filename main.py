@@ -3977,7 +3977,7 @@ def scrape_option_carriere():
                 raw_date = date_tag.get_text(strip=True).lower() if date_tag else ""
                 
                 date_start_obj = datetime.today()
-if "heure" in raw_date:
+                if "heure" in raw_date:
                     pass 
                 elif "hier" in raw_date:
                     date_start_obj = date_start_obj - timedelta(days=1)
