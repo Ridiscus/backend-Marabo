@@ -3888,37 +3888,71 @@ def test_option_carriere_endpoint():
 
 
 
-# ---------- SCRAPING OPTION CARRIERE (Version Blindée) ----------
+
+
+
+import re
+from datetime import datetime, timedelta
+from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
+
+# ---------- SCRAPING OPTION CARRIERE (Version Playwright Stealth) ----------
 def scrape_option_carriere():
     url = "https://www.optioncarriere.ci/recherche/emplois?l=C%C3%B4te+d%27Ivoire&sort=date"
     items = []
-    driver = None
 
+    print("🔄 Scraping Option Carrière via Playwright Stealth...")
+    
     try:
-        print("🔄 Scraping Option Carrière via Selenium...")
-        driver = get_driver() 
-        driver.get(url)
-        
-        # On attend un peu plus pour laisser passer les éventuels scripts de vérification du site
-        time.sleep(7) 
+        with sync_playwright() as p:
+            # Lancement du navigateur léger en mode sans tête (headless)
+            browser = p.chromium.launch(headless=True)
+            
+            # Création d'un contexte simulant un vrai ordinateur sous Windows avec une résolution standard
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080},
+                locale="fr-FR",
+                timezone_id="Africa/Abidjan"
+            )
+            
+            # Script magique Playwright pour bypass la détection de robot
+            page = context.new_page()
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                window.chrome = { runtime: {} };
+                Object.defineProperty(navigator, 'languages', {get: () => ['fr-FR', 'fr']});
+            """)
+            
+            # Navigation vers le site d'emploi
+            print(f"📡 Connexion à : {url}")
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            
+            # Petite pause aléatoire et défilement pour imiter un humain et déclencher le rendu Cloudflare
+            page.wait_for_timeout(5000)
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+            page.wait_for_timeout(2000)
+            
+            # Récupération du HTML final après exécution des scripts
+            html_content = page.content()
+            soup = BeautifulSoup(html_content, "html.parser")
+            
+            # Fermeture propre du navigateur
+            browser.close()
 
-        html_content = driver.page_source
-        soup = BeautifulSoup(html_content, "html.parser")
+        # --- Analyse du contenu par BeautifulSoup ---
+        jobs = soup.select("article.job")
+        print(f"📊 Playwright a trouvé {len(jobs)} offres.")
 
-        # Sélectionne les articles d'offres
-        jobs = soup.select("article.job") 
-        print(f"📊 Selenium a trouvé {len(jobs)} offres.")
-
-        # 🔍 LOG DE SÉCURITÉ : Si toujours 0, on regarde si on est bloqué par un captcha
         if len(jobs) == 0:
-            if "cloudflare" in html_content.lower() or "attention" in html_content.lower():
-                print("⚠️ [ALERTE] Détecté par la sécurité Cloudflare ou page de blocage d'Option Carrière.")
+            if "cloudflare" in html_content.lower() or "sucuri" in html_content.lower():
+                print("❌ [ÉCHEC] Cloudflare bloque toujours le binaire Chromium standard.")
             else:
-                print("📝 Structure reçue (extrait) :", html_content[:500])
+                print("📝 Extrait de la page reçue (Structure inconnue) :", html_content[:400])
 
         for job in jobs:
             try:
-                # 1. Titre et Lien (Sélecteur précis basé sur ton HTML)
+                # 1. Titre et Lien
                 title_tag = job.select_one("header h2 a") or job.select_one("header h3 a")
                 if not title_tag: 
                     continue
@@ -3926,7 +3960,7 @@ def scrape_option_carriere():
                 title = title_tag.get_text(strip=True)
                 link = "https://www.optioncarriere.ci" + title_tag['href']
 
-                # 2. Entreprise (Gère la balise brute ou le lien interne)
+                # 2. Entreprise
                 company_tag = job.select_one("p.company")
                 company = company_tag.get_text(strip=True) if company_tag else "Entreprise confidentielle"
 
@@ -3938,13 +3972,12 @@ def scrape_option_carriere():
                 desc_tag = job.select_one("div.desc")
                 description = desc_tag.get_text(strip=True) if desc_tag else f"Poste chez {company}"
 
-                # 5. Date (Sélecteur corrigé d'après ta structure réelle)
+                # 5. Date
                 date_tag = job.select_one("footer span.badge")
                 raw_date = date_tag.get_text(strip=True).lower() if date_tag else ""
                 
                 date_start_obj = datetime.today()
-                
-                if "heure" in raw_date:
+if "heure" in raw_date:
                     pass 
                 elif "hier" in raw_date:
                     date_start_obj = date_start_obj - timedelta(days=1)
@@ -3980,15 +4013,9 @@ def scrape_option_carriere():
                 continue
 
     except Exception as e:
-        print(f"❌ Erreur Selenium Option Carrière: {e}")
-
-    finally:
-        if driver:
-            driver.quit()
-            print("✅ Driver Option Carrière fermé.")
+        print(f"❌ Erreur critique lors du scraping Playwright : {e}")
 
     return items
-
 
 
 # ---------- SCRAPING PROJOB IVOIRE (Version Blindée) ----------
