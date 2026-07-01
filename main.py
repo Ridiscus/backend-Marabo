@@ -3891,64 +3891,52 @@ def test_option_carriere_endpoint():
 
 
 
+import requests
 import re
 from datetime import datetime, timedelta
-from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
-# ---------- SCRAPING OPTION CARRIERE (Version Playwright Stealth) ----------
+# ---------- SCRAPING OPTION CARRIERE (Version Requête Directe) ----------
 def scrape_option_carriere():
     url = "https://www.optioncarriere.ci/recherche/emplois?l=C%C3%B4te+d%27Ivoire&sort=date"
     items = []
 
-    print("🔄 Scraping Option Carrière via Playwright Stealth...")
+    print("📡 Connexion directe à Option Carrière via HTTP Requests...")
     
-    try:
-        with sync_playwright() as p:
-            # Lancement du navigateur léger en mode sans tête (headless)
-            browser = p.chromium.launch(headless=True)
-            
-            # Création d'un contexte simulant un vrai ordinateur sous Windows avec une résolution standard
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                locale="fr-FR",
-                timezone_id="Africa/Abidjan"
-            )
-            
-            # Script magique Playwright pour bypass la détection de robot
-            page = context.new_page()
-            page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                window.chrome = { runtime: {} };
-                Object.defineProperty(navigator, 'languages', {get: () => ['fr-FR', 'fr']});
-            """)
-            
-            # Navigation vers le site d'emploi
-            print(f"📡 Connexion à : {url}")
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            
-            # Petite pause aléatoire et défilement pour imiter un humain et déclencher le rendu Cloudflare
-            page.wait_for_timeout(5000)
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-            page.wait_for_timeout(2000)
-            
-            # Récupération du HTML final après exécution des scripts
-            html_content = page.content()
-            soup = BeautifulSoup(html_content, "html.parser")
-            
-            # Fermeture propre du navigateur
-            browser.close()
+    # 🕵️‍♂️ En-têtes complets imitant à 100% un vrai navigateur Firefox sous Windows
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1"
+    }
 
-        # --- Analyse du contenu par BeautifulSoup ---
+    try:
+        # On effectue la requête directe
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        if response.status_code != 200:
+            print(f"❌ Échec de la requête, Code HTTP : {response.status_code}")
+            return items
+
+        html_content = response.text
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        # Sélectionne les articles d'offres d'après ton fichier HTML reçu
         jobs = soup.select("article.job")
-        print(f"📊 Playwright a trouvé {len(jobs)} offres.")
+        print(f"📊 Le scraper HTTP a trouvé {len(jobs)} offres.")
 
         if len(jobs) == 0:
-            if "cloudflare" in html_content.lower() or "sucuri" in html_content.lower():
-                print("❌ [ÉCHEC] Cloudflare bloque toujours le binaire Chromium standard.")
+            if "cloudflare" in html_content.lower():
+                print("❌ [ÉCHEC] Bloqué par Cloudflare même en requête directe.")
             else:
-                print("📝 Extrait de la page reçue (Structure inconnue) :", html_content[:400])
+                print("📝 Structure reçue (extrait) :", html_content[:400])
 
         for job in jobs:
             try:
@@ -3977,6 +3965,7 @@ def scrape_option_carriere():
                 raw_date = date_tag.get_text(strip=True).lower() if date_tag else ""
                 
                 date_start_obj = datetime.today()
+                
                 if "heure" in raw_date:
                     pass 
                 elif "hier" in raw_date:
@@ -3995,7 +3984,6 @@ def scrape_option_carriere():
                 source = "OPTION CARRIERE"
 
                 check_and_notify_new_source(source)
-
                 items.append(build_opportunity(
                     opp_id=opp_id,
                     title=title,
@@ -4013,9 +4001,11 @@ def scrape_option_carriere():
                 continue
 
     except Exception as e:
-        print(f"❌ Erreur critique lors du scraping Playwright : {e}")
+        print(f"❌ Erreur critique lors du scraping HTTP : {e}")
 
     return items
+
+
 
 
 # ---------- SCRAPING PROJOB IVOIRE (Version Blindée) ----------
