@@ -147,76 +147,105 @@ def random_image():
     return f"https://picsum.photos/600/300?random={random.randint(1, 10000)}"
 
 
-# Images locales par source
-local_images = {
-    "INFAS": [
-        "https://yop.l-frii.com/wp-content/uploads/2025/06/Cote-dIvoire-CONCOURS-DENTREE-A-LINFAS-SESSION-2025-Nouveau-Report-de-la-date-limite-des-inscriptions.jpeg",
-        "https://kamerpower.com/wp-content/uploads/2019/12/Procedure-Inscription-Concours-INFAS-Cote-divoire.jpg",
-        "https://yop.l-frii.com/wp-content/uploads/2025/06/Cote-dIvoire-CONCOURS-DENTREE-A-LINFAS-SESSION-2025-Nouveau-Report-de-la-date-limite-des-inscriptions.jpeg"
-    ],
-    "GUCACI ENA": [
-        "https://fonctionpublique.gouv.tg/wp-content/uploads/2022/07/ENA-togo.jpg",
-        "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSEoXTDhtsRroemejeY6FqFS9aMTcHh-iytJQ&s",
-        "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ0ngHGHxFjqeqsq-_Q5ntWjbTMC-hk1htF6g&s"
-    ],
-    "EAUX ET FORËT": [
-        "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSO26enIR5fvSeo1p08r9KrS3r_AeW4X0NGUw&s",
-        "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQsyBqrF3io_uq63rLm3JiSlBudCh4kcGUJUg&s",
-        "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ_ExN2f0t-gxep_LBsjoP4bbrAstbQkTjiyQ&s"
-    ],
-    # ✅ AJOUT DE SOCIUMJOB ICI
-    "SociumJob": [
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium1.png?alt=media&token=ebc31bce-055d-400a-a553-f5433df24085",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium2.png?alt=media&token=e96da610-1d34-43ca-8eed-93952707eba5",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium3.png?alt=media&token=c6abf67e-911c-47c8-a801-1affb8641025"
-    ],
-    # ✅ AJOUT DE SOCIUMJOB ICI
-    "NovoJob": [
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob1.png?alt=media&token=219a2388-447e-4c11-bbad-f058b7369396",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob2.png?alt=media&token=a2d429ad-88ff-405b-abb3-e64a4cafcf53",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob3.png?alt=media&token=b78f4c63-19b8-48c2-b1da-e79e22320920"
-    ],
-    # ✅ AJOUT DE PROJOBIVOIR ICI educarriere
-    "ProJob Ivoire": [
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire1.png?alt=media&token=d5ab3658-fdf9-4d5c-9055-787f06f8006f",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire2.png?alt=media&token=934c3f12-f508-463f-bd5c-db0eb29743f0",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire3.png?alt=media&token=7c96a39f-a3f6-465b-8629-ebc4b359c141"
-    ],
-    "Option Carrière": [ 
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri1.png?alt=media&token=eadc3a53-afe0-46ce-a36c-7d3f1456662b",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri2.png?alt=media&token=51182f7d-6110-4f08-bc99-32d69eea5ec6",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri3.png?alt=media&token=66b00166-fb15-41c9-8b1d-18e6ef72aabf"
-    ],
-    "Educarriere": [ 
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere1.png?alt=media&token=e09243d2-1550-4e5c-af87-e2cf10c99a9d",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere2.png?alt=media&token=b5fd06f5-0df8-4eb4-9a55-aed4f5c404c0",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere3.png?alt=media&token=9b39073d-6662-460d-82a6-17cc8e92fc63"
-    ], 
-    "ENS (Ablanian)": [ 
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens1.png?alt=media&token=6f4c18d5-cfb0-4924-91d1-80f16ecb20e2",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens2.png?alt=media&token=b512e5e5-867e-44ea-aa94-ec2841f7f35d",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens3.png?alt=media&token=ac2561ee-7fda-4af4-9bc2-84af540541d1"
-    ],
-    "DAAD": [ 
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads1.png?alt=media&token=1265c4b8-5ad3-4d1c-a3cb-fa6a85c90ab5",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads2.png?alt=media&token=26b5de71-701c-4528-b38a-5f998d87fea0",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads3.png?alt=media&token=0a4fde8b-83a2-4906-aa9d-6cbf5fcc59d4"
-    ],
-    "Educarriere Formations": [ 
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere1.png?alt=media&token=e09243d2-1550-4e5c-af87-e2cf10c99a9d",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere2.png?alt=media&token=b5fd06f5-0df8-4eb4-9a55-aed4f5c404c0",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere3.png?alt=media&token=9b39073d-6662-460d-82a6-17cc8e92fc63"
-    ],
-    "Kaggle": [ 
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle1.png?alt=media&token=55f6092a-356b-465c-a82f-88bc28572c89",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle2.png?alt=media&token=c0da6d48-0198-4ad7-8dfd-cbbd072e67b4",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle3.png?alt=media&token=e71aea7d-0c20-4043-bfe2-2f216873f3d2"
-    ],
-    "Agence Emploi Jeunes": [ 
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi1.png?alt=media&token=7d666cfc-f3d3-4f45-8ed1-1ecc0ad4e46c",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi2.png?alt=media&token=49bdbf76-e069-44dc-8167-486b3c0a91e3",
-        "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi3.png?alt=media&token=3afccd8e-9d54-4fe2-b3a5-c430267b5ec1"
-    ]
+# # Images locales par source
+# local_images = {
+#     "INFAS": [
+#         "https://yop.l-frii.com/wp-content/uploads/2025/06/Cote-dIvoire-CONCOURS-DENTREE-A-LINFAS-SESSION-2025-Nouveau-Report-de-la-date-limite-des-inscriptions.jpeg",
+#         "https://kamerpower.com/wp-content/uploads/2019/12/Procedure-Inscription-Concours-INFAS-Cote-divoire.jpg",
+#         "https://yop.l-frii.com/wp-content/uploads/2025/06/Cote-dIvoire-CONCOURS-DENTREE-A-LINFAS-SESSION-2025-Nouveau-Report-de-la-date-limite-des-inscriptions.jpeg"
+#     ],
+#     "GUCACI ENA": [
+#         "https://fonctionpublique.gouv.tg/wp-content/uploads/2022/07/ENA-togo.jpg",
+#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSEoXTDhtsRroemejeY6FqFS9aMTcHh-iytJQ&s",
+#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ0ngHGHxFjqeqsq-_Q5ntWjbTMC-hk1htF6g&s"
+#     ],
+#     "EAUX ET FORËT": [
+#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSO26enIR5fvSeo1p08r9KrS3r_AeW4X0NGUw&s",
+#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQsyBqrF3io_uq63rLm3JiSlBudCh4kcGUJUg&s",
+#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ_ExN2f0t-gxep_LBsjoP4bbrAstbQkTjiyQ&s"
+#     ],
+#     # ✅ AJOUT DE SOCIUMJOB ICI
+#     "SociumJob": [
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium1.png?alt=media&token=ebc31bce-055d-400a-a553-f5433df24085",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium2.png?alt=media&token=e96da610-1d34-43ca-8eed-93952707eba5",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium3.png?alt=media&token=c6abf67e-911c-47c8-a801-1affb8641025"
+#     ],
+#     # ✅ AJOUT DE SOCIUMJOB ICI
+#     "NovoJob": [
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob1.png?alt=media&token=219a2388-447e-4c11-bbad-f058b7369396",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob2.png?alt=media&token=a2d429ad-88ff-405b-abb3-e64a4cafcf53",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob3.png?alt=media&token=b78f4c63-19b8-48c2-b1da-e79e22320920"
+#     ],
+#     # ✅ AJOUT DE PROJOBIVOIR ICI educarriere
+#     "ProJob Ivoire": [
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire1.png?alt=media&token=d5ab3658-fdf9-4d5c-9055-787f06f8006f",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire2.png?alt=media&token=934c3f12-f508-463f-bd5c-db0eb29743f0",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire3.png?alt=media&token=7c96a39f-a3f6-465b-8629-ebc4b359c141"
+#     ],
+#     "Option Carrière": [ 
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri1.png?alt=media&token=eadc3a53-afe0-46ce-a36c-7d3f1456662b",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri2.png?alt=media&token=51182f7d-6110-4f08-bc99-32d69eea5ec6",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri3.png?alt=media&token=66b00166-fb15-41c9-8b1d-18e6ef72aabf"
+#     ],
+#     "Educarriere": [ 
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere1.png?alt=media&token=e09243d2-1550-4e5c-af87-e2cf10c99a9d",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere2.png?alt=media&token=b5fd06f5-0df8-4eb4-9a55-aed4f5c404c0",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere3.png?alt=media&token=9b39073d-6662-460d-82a6-17cc8e92fc63"
+#     ], 
+#     "ENS (Ablanian)": [ 
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens1.png?alt=media&token=6f4c18d5-cfb0-4924-91d1-80f16ecb20e2",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens2.png?alt=media&token=b512e5e5-867e-44ea-aa94-ec2841f7f35d",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens3.png?alt=media&token=ac2561ee-7fda-4af4-9bc2-84af540541d1"
+#     ],
+#     "DAAD": [ 
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads1.png?alt=media&token=1265c4b8-5ad3-4d1c-a3cb-fa6a85c90ab5",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads2.png?alt=media&token=26b5de71-701c-4528-b38a-5f998d87fea0",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads3.png?alt=media&token=0a4fde8b-83a2-4906-aa9d-6cbf5fcc59d4"
+#     ],
+#     "Educarriere Formations": [ 
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere1.png?alt=media&token=e09243d2-1550-4e5c-af87-e2cf10c99a9d",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere2.png?alt=media&token=b5fd06f5-0df8-4eb4-9a55-aed4f5c404c0",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere3.png?alt=media&token=9b39073d-6662-460d-82a6-17cc8e92fc63"
+#     ],
+#     "Kaggle": [ 
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle1.png?alt=media&token=55f6092a-356b-465c-a82f-88bc28572c89",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle2.png?alt=media&token=c0da6d48-0198-4ad7-8dfd-cbbd072e67b4",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle3.png?alt=media&token=e71aea7d-0c20-4043-bfe2-2f216873f3d2"
+#     ],
+#     "Agence Emploi Jeunes": [ 
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi1.png?alt=media&token=7d666cfc-f3d3-4f45-8ed1-1ecc0ad4e46c",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi2.png?alt=media&token=49bdbf76-e069-44dc-8167-486b3c0a91e3",
+#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi3.png?alt=media&token=3afccd8e-9d54-4fe2-b3a5-c430267b5ec1"
+#     ]
+# }
+
+
+
+
+# Un dictionnaire d'images thématiques fixes, réalistes et professionnelles
+THEME_IMAGES = {
+    # Images par défaut et catégories simples
+    "DEFAULT": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fdefault_banner.jpg?alt=media&token=44a66a27-98e8-4b88-aed9-501b2449e8da",
+    "Bourses": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fbourses.jpg?alt=media&token=f7a2658b-bfd0-4784-b5a8-9cb06f641e57",
+    "Concours": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fconcours.jpg?alt=media&token=cb7dc11a-4470-4041-bd26-6d210d1845e5",
+    "Hackathons": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fhackathons.jpg?alt=media&token=339f69b4-ac8a-414b-b970-fe6a92a4fad3",
+    "Certificats": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fcertificats.jpg?alt=media&token=b5c909d0-e5c3-49e2-8da3-8575d84c3409",
+    "Stages": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fstages.jpg?alt=media&token=92ff90ea-1ce3-4342-8bca-834e2b022cf7",
+    "Institutions internationales": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Finternationale.jpg?alt=media&token=640eed63-14f2-42ec-a4d3-edd7f17790e8",
+    "Appels à projets": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fprojet.jpg?alt=media&token=cdb3ef19-fa2d-4dfd-82fb-1188cb357e02",
+    "Subventions / Financements": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Ffinance.jpg?alt=media&token=896d296f-3208-40fb-8017-f4d1cb809a32",
+
+    "Emplois": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Femplois.jpg?alt=media&token=e47fa437-d873-4a9d-a5bc-7217a5ca886b", # Image générique de l'emploi si l'IA ne choisit pas de sous-thème
+    "Réseautage / Mentorats": "https://mon-storage.com/marabot/categories/reseautage.png",
+    "Formations": "https://mon-storage.com/marabot/categories/formations.png",
+    "Évènements": "https://mon-storage.com/marabot/categories/evenements.png",
+    
+    # Sous-thématiques pour "Emplois" ou "Formations" déterminées par l'IA
+    "tech": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Ftech.jpg?alt=media&token=3123917e-bfa9-4b07-9dc8-05537663dae2",        # Développeur, Data Scientist...
+    "sante": "https://mon-storage.com/marabot/metiers/sante.png",      # INFAS, Médecin, Infirmier...
+    "vente": "https://mon-storage.com/marabot/metiers/vente.png",      # Vendeur, Marketing, Commercial...
+    "bureau": "https://mon-storage.com/marabot/metiers/bureau.png",    # RH, Comptabilité, Secrétariat...
+    "terrain": "https://mon-storage.com/marabot/metiers/terrain.png",  # Logistique, Chauffeur, BTP...
 }
 
 
@@ -266,18 +295,38 @@ def check_and_notify_new_source(source_name):
 
 
 
-def choose_image(source: str):
-    """
-    Choisit une image dans le dictionnaire en fonction de la source.
-    Utilise .get() pour gérer les clés manquantes sans planter.
-    """
-    # Si la source est dans notre dictionnaire, on prend une image au hasard de sa liste
-    if source in local_images:
-        return random.choice(local_images[source])
+# def choose_image(source: str):
+#     """
+#     Choisit une image dans le dictionnaire en fonction de la source.
+#     Utilise .get() pour gérer les clés manquantes sans planter.
+#     """
+#     # Si la source est dans notre dictionnaire, on prend une image au hasard de sa liste
+#     if source in local_images:
+#         return random.choice(local_images[source])
     
-    # Sinon, on retourne le fallback aléatoire
-    print(f"⚠️ Aucune image spécifique trouvée pour la source : '{source}'. Utilisation d'une image aléatoire.")
-    return random_image()
+#     # Sinon, on retourne le fallback aléatoire
+#     print(f"⚠️ Aucune image spécifique trouvée pour la source : '{source}'. Utilisation d'une image aléatoire.")
+#     return random_image()
+
+
+
+
+def choose_smart_image(category: str, ai_job_theme: str = None) -> str:
+    """
+    Sélectionne une image fixe professionnelle selon la catégorie ou le sous-thème de l'IA.
+    """
+    # 1. Si l'IA a détecté un sous-thème spécifique (tech, sante, etc.) et qu'il existe, on le prend
+    if ai_job_theme and ai_job_theme in THEME_IMAGES:
+        return THEME_IMAGES[ai_job_theme]
+        
+    # 2. Sinon, on cherche l'image de la catégorie principale
+    if category in THEME_IMAGES:
+        return THEME_IMAGES[category]
+        
+    # 3. Fallback absolu : Image par défaut Marabot
+    return THEME_IMAGES["DEFAULT"]
+
+
 
 
 def parse_date_fr(date_str):
@@ -339,8 +388,69 @@ def generate_ai_summary(category, source):
 
 
 
+# def analyze_opportunity_with_gemini(title, category, source, description=""):
+#     # Le prompt magique : on force Gemini à renvoyer du JSON
+#     prompt = f"""Analyse l'opportunité suivante et extrais les informations clés.
+# Titre: {title}
+# Catégorie: {category}
+# Source: {source}
+# Description: {description}
+
+# Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valide, avec la structure exacte suivante :
+# {{
+#     "summary": "Un résumé clair et engageant en 2 ou 3 phrases.",
+#     "company_name": "Nom de l'entreprise ou de l'organisation. Si introuvable, mets 'Non spécifié'",
+#     "exact_location": "Ville précise (ex: Abidjan, Bouaké, Yamoussoukro, Remote). Si introuvable, mets 'Non spécifié'",
+#     "required_skills": ["Compétence 1", "Compétence 2", "Compétence 3"]
+# }}"""
+
+#     headers = {
+#         "Content-Type": "application/json"
+#     }
+
+#     data = {
+#         "contents": [
+#             {
+#                 "parts": [
+#                     {"text": prompt}
+#                 ]
+#             }
+#         ]
+#     }
+
+#     try:
+#         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
+#         response.raise_for_status()
+#         result = response.json()
+        
+#         # Récupération du texte brut de l'IA
+#         ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+        
+#         # Nettoyage : parfois Gemini entoure le JSON avec ```json ... ```
+#         ai_text = re.sub(r"^```json\s*", "", ai_text, flags=re.IGNORECASE)
+#         ai_text = re.sub(r"\s*```$", "", ai_text).strip()
+        
+#         # Transformation du texte en vrai dictionnaire Python
+#         ai_data = json.loads(ai_text)
+#         return ai_data
+
+#     except Exception as e:
+#         print("Erreur Gemini (ou parsing JSON):", e)
+#         # Fallback de sécurité au cas où l'IA échoue
+#         return {
+#             "summary": f"L’IA n’a pas pu générer de résumé pour '{title}'.",
+#             "company_name": "Non spécifié",
+#             "exact_location": "Non spécifié",
+#             "required_skills": []
+#         }
+
+
+
+
+
+
 def analyze_opportunity_with_gemini(title, category, source, description=""):
-    # Le prompt magique : on force Gemini à renvoyer du JSON
+    # Le prompt magique mis à jour avec la consigne 'job_theme'
     prompt = f"""Analyse l'opportunité suivante et extrais les informations clés.
 Titre: {title}
 Catégorie: {category}
@@ -352,7 +462,8 @@ Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valid
     "summary": "Un résumé clair et engageant en 2 ou 3 phrases.",
     "company_name": "Nom de l'entreprise ou de l'organisation. Si introuvable, mets 'Non spécifié'",
     "exact_location": "Ville précise (ex: Abidjan, Bouaké, Yamoussoukro, Remote). Si introuvable, mets 'Non spécifié'",
-    "required_skills": ["Compétence 1", "Compétence 2", "Compétence 3"]
+    "required_skills": ["Compétence 1", "Compétence 2", "Compétence 3"],
+    "job_theme": "Si la catégorie est 'Emplois' ou 'Formations', choisis STRICTEMENT la valeur la plus proche parmi : 'tech', 'sante', 'vente', 'bureau', 'terrain'. Si la description ne correspond à aucun de ces thèmes ou s'il s'agit d'une autre catégorie (comme Concours, Bourses, etc.), mets null sans guillemets."
 }}"""
 
     headers = {
@@ -377,9 +488,9 @@ Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valid
         # Récupération du texte brut de l'IA
         ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
         
-        # Nettoyage : parfois Gemini entoure le JSON avec ```json ... ```
-        ai_text = re.sub(r"^```json\s*", "", ai_text, flags=re.IGNORECASE)
-        ai_text = re.sub(r"\s*```$", "", ai_text).strip()
+        # Nettoyage : parfois Gemini entoure le JSON avec
+        ai_text = re.sub(r"^json\s*", "", ai_text, flags=re.IGNORECASE)
+        ai_text = re.sub(r"\s*`$", "", ai_text).strip()
         
         # Transformation du texte en vrai dictionnaire Python
         ai_data = json.loads(ai_text)
@@ -387,13 +498,16 @@ Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valid
 
     except Exception as e:
         print("Erreur Gemini (ou parsing JSON):", e)
-        # Fallback de sécurité au cas où l'IA échoue
+        # Fallback de sécurité au cas où l'IA échoue (Ajout du job_theme par défaut à None)
         return {
             "summary": f"L’IA n’a pas pu générer de résumé pour '{title}'.",
             "company_name": "Non spécifié",
             "exact_location": "Non spécifié",
-            "required_skills": []
+            "required_skills": [],
+            "job_theme": None
         }
+
+
 
 
 
@@ -926,66 +1040,11 @@ async def trigger_chat_notification(payload: ChatNotificationModel):
 
 
 
-# @app.post("/notify-new-announcement")
-# async def notify_new_announcement(
-#     company_name: str = Body(...),
-#     title: str = Body(...),
-#     category: str = Body(...),
-#     opportunity_id: str = Body(...)
-# ):
-#     try:
-#         # On harmonise les titres/messages comme dans ton exemple "Interests"
-#         notif_title = f"Nouvelle opportunité : {category}"
-#         notif_message = title  # Le titre de l'annonce sert de corps de message
 
-#         # --- 1. ENVOI DU PUSH (Topic FCM) ---
-#         # On utilise le Topic pour la rapidité du push
-#         send_push_to_topic(
-#             topic="particuliers",
-#             title=notif_title,
-#             body=f"{company_name} a publié : {notif_message}", # Texte plus complet pour le push
-#             data={
-#                 "type": "opportunity",
-#                 "opportunityId": str(opportunity_id).strip(),
-#                 "screen": "/notifications"
-#             }
-#         )
 
-#         # --- 2. SAUVEGARDE DANS FIRESTORE (Batch) ---
-#         # On cible uniquement les particuliers
-#         users_ref = db.collection('users').where('role', '==', 'particulier').stream()
 
-#         batch = db.batch()
-#         count = 0
 
-#         for user in users_ref:
-#             # Structure EXACTEMENT identique à ton exemple notify_users_by_interest
-#             notif_ref = db.collection('users').document(user.id).collection('notifications').document()
-            
-#             batch.set(notif_ref, {
-#                 "title": notif_title,
-#                 "message": notif_message, # <--- Changé 'body' en 'message' pour matcher ton exemple
-#                 "createdAt": firestore.SERVER_TIMESTAMP,
-#                 "isRead": False,
-#                 "type": "opportunity",
-#                 "opportunityId": str(opportunity_id)
-#             })
-            
-#             count += 1
-#             if count >= 500:
-#                 batch.commit()
-#                 batch = db.batch()
-#                 count = 0
-        
-#         if count > 0:
-#             batch.commit()
 
-#         print(f"✅ Notification entreprise sauvegardée pour {count} particuliers.")
-#         return {"status": "success", "message": "Notification envoyée et enregistrée."}
-
-#     except Exception as e:
-#         print(f"❌ Erreur lors de la notification globale: {e}")
-#         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
 @app.post("/notify-new-announcement")
@@ -1098,59 +1157,59 @@ def send_opportunity_notification_to_all(opportunity_title, company_name, catego
 
 
 
-# ---------- CONFIGURATION SELENIUM (CORRIGÉE) ----------
-# def get_driver():
-#     chrome_options = Options()
-    
-#     # --- 1. Options CRITIQUES pour le serveur (Docker/Railway) ---
-#     chrome_options.add_argument("--headless=new")       # Indispensable : Pas d'interface graphique
-#     chrome_options.add_argument("--no-sandbox")         # Indispensable pour Docker
-#     chrome_options.add_argument("--disable-dev-shm-usage") # Évite les crashs de mémoire partagée
-#     chrome_options.add_argument("--disable-gpu")
-#     chrome_options.add_argument("--window-size=1920,1080")
-#     chrome_options.add_argument("--start-maximized")
-    
-#     # User Agent (pour ne pas être bloqué par les sites)
-#     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-#     # --- 2. Astuce pour trouver Chrome sur Linux (Railway/Render) ---
-#     # Sur ton PC Windows, ça sera ignoré. Sur le serveur, ça trouvera le bon chemin.
-#     possible_paths = [
-#         "/usr/bin/google-chrome",
-#         "/usr/bin/google-chrome-stable",
-#         "/opt/google/chrome/google-chrome"
-#     ]
-    
-#     binary_path = None
-#     for path in possible_paths:
-#         if os.path.exists(path):
-#             binary_path = path
-#             break
-            
-#     if binary_path:
-#         print(f"🚀 Chrome détecté sur le serveur à : {binary_path}")
-#         chrome_options.binary_location = binary_path
-#     else:
-#         print("💻 Chrome non trouvé dans les chemins Linux, utilisation du chemin système par défaut (Windows/Mac)")
+@app.post("/notify-account-validated")
+async def notify_account_validated(
+    user_id: str = Body(...),
+    company_name: str = Body(...)
+):
+    try:
+        clean_user_id = str(user_id).strip()
+        clean_company_name = str(company_name).strip() if company_name else "l'équipe"
 
-#     # --- 3. Lancement du driver ---
-#     try:
-#         service = Service(ChromeDriverManager().install())
-#         driver = webdriver.Chrome(service=service, options=chrome_options)
-#         return driver
-#     except Exception as e:
-#         print(f"❌ Erreur critique lors du lancement de Selenium : {e}")
-#         raise e
+        notif_title = "🎉 Votre compte entreprise est validé !"
+        notif_message = f"Félicitations {clean_company_name}, votre structure a été approuvée. Vous pouvez dès à présent publier vos annonces !"
 
+        # --- 1. SAUVEGARDE DE LA NOTIFICATION DANS LE FIRESTORE DE L'ENTREPRISE ---
+        notif_ref = db.collection('users').document(clean_user_id).collection('notifications').document()
+        notif_ref.set({
+            "title": notif_title,
+            "message": notif_message,
+            "createdAt": firestore.SERVER_TIMESTAMP,
+            "isRead": False,
+            "type": "account_activation",
+            "opportunityId": "" # Pas d'opportunité liée ici
+        })
+
+        # --- 2. ENVOI DU PUSH DIRECT À L'ENTREPRISE (Via son Topic personnel) ---
+        # Note : Dans ton main.dart Flutter, assure-toi que l'entreprise s'abonne à "user_SON_UID" à la connexion
+        user_topic = f"user_{clean_user_id}"
+        
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=notif_title,
+                body=notif_message,
+            ),
+            data={
+                "type": "account_activation",
+                "screen": "create_annonce"
+            },
+            topic=user_topic,
+        )
+        
+        response = messaging.send(message)
+        print(f"✅ Notification de validation enregistrée et push envoyé au topic {user_topic}: {response}")
+        
+        return {"status": "success", "message": "Compte entreprise notifié avec succès."}
+
+    except Exception as e:
+        print(f"❌ Erreur lors de la notification de validation: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
 
 import os
 import subprocess
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-
 def get_driver():
     chrome_options = Options()
     
@@ -1345,6 +1404,47 @@ async def confirm_payment(request: Request):
 
 
 
+# def build_opportunity(opp_id, title, category, source, date_start, date_end, url, badge_color, description="", isFeatured=False, image_url=None):
+#     if not date_start:
+#         date_start = date_end
+
+#     # 1. On lance l'analyse IA
+#     ai_data = analyze_opportunity_with_gemini(title, category, source, description)
+
+#     # 2. Gestion intelligente de la localisation
+#     # Si c'est Kaggle, c'est Global. Sinon, on prend la ville trouvée par l'IA. 
+#     # Si l'IA n'a rien trouvé, on met "Côte d’Ivoire" par défaut.
+#     location = "Global" if source == "Kaggle" else ai_data.get("exact_location", "Non spécifié")
+#     if location == "Non spécifié" and source != "Kaggle":
+#         location = "Côte d’Ivoire"
+
+#     return {
+#         "id": opp_id,
+#         "source": source,
+#         "title": title,
+#         "category": category,
+#         "views": 0,
+#         "date_start": parse_date_fr(date_start),
+#         "date_end": parse_date_fr(date_end),
+        
+#         # --- NOUVEAUX CHAMPS DATA-DRIVEN ---
+#         "location": location, 
+#         "company_name": ai_data.get("company_name", "Non spécifié"),
+#         "required_skills": ai_data.get("required_skills", []),
+#         "aiSummary": ai_data.get("summary", ""),
+#         # -----------------------------------
+        
+#         "summary": f"Inscrivez-vous du {date_start} au {date_end}",
+#         "badgeColor": badge_color,
+#         "url": url,
+#         "isFeatured": isFeatured,
+#         "imageUrl": image_url if image_url else choose_image(source)
+#     }
+
+
+
+
+
 def build_opportunity(opp_id, title, category, source, date_start, date_end, url, badge_color, description="", isFeatured=False, image_url=None):
     if not date_start:
         date_start = date_end
@@ -1353,11 +1453,12 @@ def build_opportunity(opp_id, title, category, source, date_start, date_end, url
     ai_data = analyze_opportunity_with_gemini(title, category, source, description)
 
     # 2. Gestion intelligente de la localisation
-    # Si c'est Kaggle, c'est Global. Sinon, on prend la ville trouvée par l'IA. 
-    # Si l'IA n'a rien trouvé, on met "Côte d’Ivoire" par défaut.
     location = "Global" if source == "Kaggle" else ai_data.get("exact_location", "Non spécifié")
     if location == "Non spécifié" and source != "Kaggle":
         location = "Côte d’Ivoire"
+
+    # 3. Récupération du sous-thème extrait par Gemini (ex: 'tech', 'sante' ou None)
+    ai_job_theme = ai_data.get("job_theme", None)
 
     return {
         "id": opp_id,
@@ -1379,8 +1480,13 @@ def build_opportunity(opp_id, title, category, source, date_start, date_end, url
         "badgeColor": badge_color,
         "url": url,
         "isFeatured": isFeatured,
-        "imageUrl": image_url if image_url else choose_image(source)
+        
+        # 👇 LOGIQUE D'IMAGE SÉCURISÉE ET PROFESSIONNELLE 👇
+        "imageUrl": image_url if image_url else choose_smart_image(category, ai_job_theme)
     }
+
+
+
 
 
 @app.get("/opportunities")
