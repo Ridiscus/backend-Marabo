@@ -227,7 +227,7 @@ THEME_IMAGES = {
     # Images par défaut et catégories simples
     "DEFAULT": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fdefault_banner.jpg?alt=media&token=44a66a27-98e8-4b88-aed9-501b2449e8da",
     "Bourses": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fbourses.jpg?alt=media&token=f7a2658b-bfd0-4784-b5a8-9cb06f641e57",
-    "Concours": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fconcours.jpg?alt=media&token=cb7dc11a-4470-4041-bd26-6d210d1845e5",
+    "Concours": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fconcour.jpg?alt=media&token=fc1539c9-10e2-46a1-b03a-539eee4916b7",
     "Hackathons": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fhackathons.jpg?alt=media&token=339f69b4-ac8a-414b-b970-fe6a92a4fad3",
     "Certificats": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fcertificats.jpg?alt=media&token=b5c909d0-e5c3-49e2-8da3-8575d84c3409",
     "Stages": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fstages.jpg?alt=media&token=92ff90ea-1ce3-4342-8bca-834e2b022cf7",
@@ -236,17 +236,18 @@ THEME_IMAGES = {
     "Subventions / Financements": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Ffinance.jpg?alt=media&token=896d296f-3208-40fb-8017-f4d1cb809a32",
 
     "Emplois": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Femplois.jpg?alt=media&token=e47fa437-d873-4a9d-a5bc-7217a5ca886b", # Image générique de l'emploi si l'IA ne choisit pas de sous-thème
-    "Réseautage / Mentorats": "https://mon-storage.com/marabot/categories/reseautage.png",
-    "Formations": "https://mon-storage.com/marabot/categories/formations.png",
-    "Évènements": "https://mon-storage.com/marabot/categories/evenements.png",
+    "Réseautage / Mentorats": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Frezo.jpg?alt=media&token=de672f8b-c951-4f03-ae2b-5d2b6d26c658",
+    "Formations": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fform.jpg?alt=media&token=3a02f05a-9fc3-4a8f-96a0-bb9a2f2c7241",
+    "Évènements": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fevent.jpg?alt=media&token=47f52658-43c4-45cd-9e83-b0aae9c2b04e",
     
     # Sous-thématiques pour "Emplois" ou "Formations" déterminées par l'IA
     "tech": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Ftech.jpg?alt=media&token=3123917e-bfa9-4b07-9dc8-05537663dae2",        # Développeur, Data Scientist...
-    "sante": "https://mon-storage.com/marabot/metiers/sante.png",      # INFAS, Médecin, Infirmier...
-    "vente": "https://mon-storage.com/marabot/metiers/vente.png",      # Vendeur, Marketing, Commercial...
-    "bureau": "https://mon-storage.com/marabot/metiers/bureau.png",    # RH, Comptabilité, Secrétariat...
-    "terrain": "https://mon-storage.com/marabot/metiers/terrain.png",  # Logistique, Chauffeur, BTP...
+    "sante": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fsante.jpg?alt=media&token=4917a9cb-84dc-451a-aabb-843c2b23236b",      # INFAS, Médecin, Infirmier...
+    "vente": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fvente.jpg?alt=media&token=0d46f9d3-5718-45e9-90b9-45c34a1e89fd",      # Vendeur, Marketing, Commercial...
+    "bureau": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fbureau.jpg?alt=media&token=8596fafb-26a3-4d17-b24a-d17bb683a88b",    # RH, Comptabilité, Secrétariat...
+    "terrain": "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/categories%2Fterrain.jpg?alt=media&token=0508dd17-c06f-4c87-b60d-9a44c349cdfb",  # Logistique, Chauffeur, BTP...
 }
+
 
 
 
