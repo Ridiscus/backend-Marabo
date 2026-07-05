@@ -4927,6 +4927,130 @@ def trigger_ens_scrape():
 
 
 
+def scrape_inphb():
+    url_inphb = "https://admission-bac.concours.inphb.app/"
+    items = []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://google.com"
+    }
+
+    try:
+        print(f"🔄 Connexion à {url_inphb}...")
+        # verify=False si le site pose des problèmes de certificat SSL en local
+        resp = requests.get(url_inphb, headers=headers, timeout=20, verify=False)
+        
+        if resp.status_code != 200:
+            print(f"⚠️ Erreur HTTP sur {url_inphb} : {resp.status_code}")
+            return items
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # 1. TITRE DE L'OPPORTUNITÉ
+        # Si la structure contient un titre spécifique, on le prend, sinon valeur par défaut explicite
+        title_tag = soup.find(class_="calendar-title")
+        if title_tag:
+            title = "Concours d'entrée à l'INPHB 2026"
+        else:
+            title = "Concours d'entrée à l'INPHB (Session 2026)"
+
+        # 2. EXTRACTION ET ANALYSE DES DATES
+        date_start = "À venir"
+        date_end = "À venir"
+        status_description = "Lancement des inscriptions"
+        badge_color = "gray"
+
+        date_tag = soup.find(class_="calendar-dates")
+        if date_tag:
+            raw_date_text = date_tag.get_text(strip=True)
+            # Extrait le texte des dates (ex: "Mercredi 02/07 au Mardi 22/07 2026")
+            status_description = f"Inscriptions : {raw_date_text}"
+            
+            # Regex robuste pour capturer les formats JJ/MM présents dans le texte
+            date_matches = re.findall(r"(\d{2}/\d{2})", raw_date_text)
+            year_match = re.search(r"(\d{4})", raw_date_text)
+            year = year_match.group(1) if year_match else str(datetime.now().year)
+
+            if len(date_matches) >= 2:
+                date_start = f"{date_matches[0]}/{year}"
+                date_end = f"{date_matches[1]}/{year}"
+                badge_color = "green"
+            elif len(date_matches) == 1:
+                date_start = f"{date_matches[0]}/{year}"
+                badge_color = "green"
+        else:
+            status_description = "Session d'inscription ouverte"
+            badge_color = "orange"
+
+        # 3. EXTRACTION DES CONTACTS POUR ENRICHIR LA DESCRIPTION
+        contacts_text = ""
+        contacts_tag = soup.find(class_="calendar-contacts")
+        if contacts_tag:
+            contacts_text = " | Contacts : " + contacts_tag.get_text(separator=" ", strip=True)
+
+        # 4. CRÉATION DE LA DESCRIPTION DYNAMIQUE
+        description = f"{title}. {status_description}. Retrouvez toutes les modalités de préinscription sur la plateforme officielle de l'INPHB.{contacts_text}"
+        description = re.sub(r'\s+', ' ', description).strip()
+
+        # 5. ID UNIQUE & CRÉATION DE L'OPPORTUNITÉ
+        # Remplace 'generate_numeric_id' et 'check_and_notify_new_source' par tes fonctions réelles globales
+        opp_id = str(generate_numeric_id("INPHB_BAC", "2026"))
+        source_name = "INPHB Officiel"
+        
+        # Déclenche la notification si nouvelle source détectée
+        check_and_notify_new_source(source_name)
+
+        # 6. CONSTRUCTION DE L'OBJET
+        items.append(build_opportunity(
+            opp_id=opp_id,
+            title=title,
+            category="Concours",
+            source=source_name,
+            date_start=date_start,
+            date_end=date_end,
+            url=url_inphb,
+            badge_color=badge_color,
+            description=description
+        ))
+        
+        print(f"✅ Scraping réussi pour : {title}")
+
+    except Exception as e:
+        print(f"❌ ERREUR SCRAPING INPHB : {e}")
+
+    return items
+
+
+
+@app.get("/scrape/inphb")
+def trigger_inphb_scrape():
+    try:
+        print("🚀 Lancement du scraping INPHB et sauvegarde en BDD...")
+        # 1. Appel de la fonction de scraping
+        data = scrape_inphb()
+        
+        # 2. Sauvegarde dans Firestore
+        count = 0
+        for item in data:
+            # On utilise l'id généré par build_opportunity (qui est dans item["id"])
+            doc_ref = db.collection("opportunities").document(item["id"])
+            
+            # Si l'opportunité n'existe pas encore, on la crée
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        return {"status": "success", "added": count, "data": data}
+        
+    except Exception as e:
+        print(f"❌ Erreur lors du scraping ou de la sauvegarde INPHB : {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
 # ---------- SCRAPING FACI (Recrutement Militaire) ----------
 def scrape_faci():
     url = "https://ablanian.ci/concours_admin/view.php?slug=facirecrutement&src=footer"
