@@ -1159,6 +1159,56 @@ def send_opportunity_notification_to_all(opportunity_title, company_name, catego
 
 
 
+# @app.post("/notify-account-validated")
+# async def notify_account_validated(
+#     user_id: str = Body(...),
+#     company_name: str = Body(...)
+# ):
+#     try:
+#         clean_user_id = str(user_id).strip()
+#         clean_company_name = str(company_name).strip() if company_name else "l'équipe"
+
+#         notif_title = "🎉 Votre compte entreprise est validé !"
+#         notif_message = f"Félicitations {clean_company_name}, votre structure a été approuvée. Vous pouvez dès à présent publier vos annonces !"
+
+#         # --- 1. SAUVEGARDE DE LA NOTIFICATION DANS LE FIRESTORE DE L'ENTREPRISE ---
+#         notif_ref = db.collection('users').document(clean_user_id).collection('notifications').document()
+#         notif_ref.set({
+#             "title": notif_title,
+#             "message": notif_message,
+#             "createdAt": firestore.SERVER_TIMESTAMP,
+#             "isRead": False,
+#             "type": "account_activation",
+#             "opportunityId": "" # Pas d'opportunité liée ici
+#         })
+
+#         # --- 2. ENVOI DU PUSH DIRECT À L'ENTREPRISE (Via son Topic personnel) ---
+#         # Note : Dans ton main.dart Flutter, assure-toi que l'entreprise s'abonne à "user_SON_UID" à la connexion
+#         user_topic = f"user_{clean_user_id}"
+        
+#         message = messaging.Message(
+#             notification=messaging.Notification(
+#                 title=notif_title,
+#                 body=notif_message,
+#             ),
+#             data={
+#                 "type": "account_activation",
+#                 "screen": "create_annonce"
+#             },
+#             topic=user_topic,
+#         )
+        
+#         response = messaging.send(message)
+#         print(f"✅ Notification de validation enregistrée et push envoyé au topic {user_topic}: {response}")
+        
+#         return {"status": "success", "message": "Compte entreprise notifié avec succès."}
+
+#     except Exception as e:
+#         print(f"❌ Erreur lors de la notification de validation: {e}")
+#         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+
 @app.post("/notify-account-validated")
 async def notify_account_validated(
     user_id: str = Body(...),
@@ -1166,12 +1216,18 @@ async def notify_account_validated(
 ):
     try:
         clean_user_id = str(user_id).strip()
-        clean_company_name = str(company_name).strip() if company_name else "l'équipe"
+        
+        # 🛠️ SÉCURITÉ : Si company_name vaut "Inconnu", None ou est vide, on utilise un fallback propre
+        name_str = str(company_name).strip() if company_name else ""
+        if not name_str or name_str.lower() in ["inconnu", "unknown", "undefined"]:
+            clean_company_name = "cher partenaire"  # Ou "l'équipe", ou ce que tu préfères
+        else:
+            clean_company_name = name_str
 
         notif_title = "🎉 Votre compte entreprise est validé !"
         notif_message = f"Félicitations {clean_company_name}, votre structure a été approuvée. Vous pouvez dès à présent publier vos annonces !"
 
-        # --- 1. SAUVEGARDE DE LA NOTIFICATION DANS LE FIRESTORE DE L'ENTREPRISE ---
+        # --- 1. SAUVEGARDE DANS FIRESTORE ---
         notif_ref = db.collection('users').document(clean_user_id).collection('notifications').document()
         notif_ref.set({
             "title": notif_title,
@@ -1179,11 +1235,10 @@ async def notify_account_validated(
             "createdAt": firestore.SERVER_TIMESTAMP,
             "isRead": False,
             "type": "account_activation",
-            "opportunityId": "" # Pas d'opportunité liée ici
+            "opportunityId": "" 
         })
 
-        # --- 2. ENVOI DU PUSH DIRECT À L'ENTREPRISE (Via son Topic personnel) ---
-        # Note : Dans ton main.dart Flutter, assure-toi que l'entreprise s'abonne à "user_SON_UID" à la connexion
+        # --- 2. ENVOI DU PUSH ---
         user_topic = f"user_{clean_user_id}"
         
         message = messaging.Message(
@@ -1199,7 +1254,7 @@ async def notify_account_validated(
         )
         
         response = messaging.send(message)
-        print(f"✅ Notification de validation enregistrée et push envoyé au topic {user_topic}: {response}")
+        print(f"✅ Notification enregistrée et push envoyé au topic {user_topic}: {response}")
         
         return {"status": "success", "message": "Compte entreprise notifié avec succès."}
 
