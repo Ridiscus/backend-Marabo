@@ -5051,6 +5051,129 @@ def trigger_inphb_scrape():
 
 
 
+def scrape_disasterready():
+    # 💡 Liste de toutes les URLs des certificats à scraper
+    urls_certificats = [
+        "https://fr.disasterready.org/procurement-logistics-certificate",
+        "https://fr.disasterready.org/inssa-security-certification",
+        "https://fr.disasterready.org/free-certificate-leadership-essentials",
+        "https://fr.disasterready.org/free-certificate-project-management"
+    ]
+    
+    items = []
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://google.com"
+    }
+
+    for url in urls_certificats:
+        try:
+            print(f"🔄 Connexion à {url}...")
+            resp = requests.get(url, headers=headers, timeout=20, verify=False)
+            
+            if resp.status_code != 200:
+                print(f"⚠️ Erreur HTTP sur {url} : {resp.status_code}")
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # 1. TITRE (On cherche le h3 dans les blocs Rich Text de Wix)
+            title = "Certificat Professionnel"
+            title_tag = soup.find("h3", class_="wixui-rich-text__text")
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+            else:
+                # Alternative si le titre est dans un h2 ou h1
+                alt_title = soup.find(["h1", "h2"], class_="wixui-rich-text__text")
+                if alt_title:
+                    title = alt_title.get_text(strip=True)
+
+            # 2. DESCRIPTION
+            # On récupère tous les paragraphes du bloc descriptif pour former un texte propre
+            desc_parts = []
+            p_tags = soup.find_all("p", class_="wixui-rich-text__text")
+            
+            for p in p_tags:
+                text_p = p.get_text(strip=True)
+                # On évite de dupliquer des textes vides ou trop courts
+                if text_p and len(text_p) > 10:
+                    desc_parts.append(text_p)
+            
+            if desc_parts:
+                # Fusionne les paragraphes trouvés
+                description = " ".join(desc_parts)
+            else:
+                description = f"Découvrez le cours certifiant gratuit '{title}' dispensé sur la plateforme officielle DisasterReady."
+
+            description = re.sub(r'\s+', ' ', description).strip()
+
+            # 3. DATES & BADGE (Pour les certificats en ligne, c'est généralement permanent/ouvert en continu)
+            date_start = "Ouvert"
+            date_end = "Permanent"
+            badge_color = "green"
+
+            # 4. ID UNIQUE & SOURCE
+            # Extraction d'un bout de l'URL pour rendre l'ID unique par cours
+            slug = url.split("/")[-1]
+            opp_id = str(generate_numeric_id(f"CERT_{slug}", "2026"))
+            source_name = "DisasterReady"
+            
+            check_and_notify_new_source(source_name)
+
+            # 5. CONSTRUCTION DE L'OBJET OPPORTUNITÉ
+            items.append(build_opportunity(
+                opp_id=opp_id,
+                title=title,
+                category="Certificats", # 👈 Ta nouvelle catégorie
+                source=source_name,
+                date_start=date_start,
+                date_end=date_end,
+                url=url,
+                badge_color=badge_color,
+                description=description
+            ))
+            
+            print(f"✅ Scraping réussi pour le certificat : {title}")
+            
+            # Pause de 1 seconde entre chaque URL pour respecter le serveur
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"❌ ERREUR SCRAPING CERTIFICAT sur {url} : {e}")
+
+    return items
+
+
+@app.get("/scrape/certificats")
+def trigger_certificats_scrape():
+    try:
+        print("🚀 Lancement du scraping des Certificats et sauvegarde en BDD...")
+        # 1. Appel de la fonction de scraping globale
+        data = scrape_disasterready()
+        
+        # 2. Sauvegarde dans Firestore
+        count = 0
+        for item in data:
+            # Récupération de la référence par l'ID unique généré
+            doc_ref = db.collection("opportunities").document(item["id"])
+            
+            # Si le certificat n'est pas encore enregistré, on l'ajoute
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        return {"status": "success", "added": count, "data": data}
+        
+    except Exception as e:
+        print(f"❌ Erreur lors du scraping ou de la sauvegarde des Certificats : {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+
 # ---------- SCRAPING FACI (Recrutement Militaire) ----------
 def scrape_faci():
     url = "https://ablanian.ci/concours_admin/view.php?slug=facirecrutement&src=footer"
@@ -5397,6 +5520,7 @@ def run_all_scrapers():
         scrape_option_carriere,
         scrape_projob_ivoire,
         scrape_sociumjob,
+        scrape_inphb,
     ]
 
     ops = []
