@@ -450,7 +450,72 @@ def generate_ai_summary(category, source):
 
 
 
+# def analyze_opportunity_with_gemini(title, category, source, description=""):
+#     # Le prompt magique mis à jour avec la consigne 'job_theme'
+#     prompt = f"""Analyse l'opportunité suivante et extrais les informations clés.
+# Titre: {title}
+# Catégorie: {category}
+# Source: {source}
+# Description: {description}
+
+# Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valide, avec la structure exacte suivante :
+# {{
+#     "summary": "Un résumé clair et engageant en 2 ou 3 phrases.",
+#     "company_name": "Nom de l'entreprise ou de l'organisation. Si introuvable, mets 'Non spécifié'",
+#     "exact_location": "Ville précise (ex: Abidjan, Bouaké, Yamoussoukro, Remote). Si introuvable, mets 'Non spécifié'",
+#     "required_skills": ["Compétence 1", "Compétence 2", "Compétence 3"],
+#     "job_theme": "Si la catégorie est 'Emplois' ou 'Formations', choisis STRICTEMENT la valeur la plus proche parmi : 'tech', 'sante', 'vente', 'bureau', 'terrain'. Si la description ne correspond à aucun de ces thèmes ou s'il s'agit d'une autre catégorie (comme Concours, Bourses, etc.), mets null sans guillemets."
+# }}"""
+
+#     headers = {
+#         "Content-Type": "application/json"
+#     }
+
+#     data = {
+#         "contents": [
+#             {
+#                 "parts": [
+#                     {"text": prompt}
+#                 ]
+#             }
+#         ]
+#     }
+
+#     try:
+#         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
+#         response.raise_for_status()
+#         result = response.json()
+        
+#         # Récupération du texte brut de l'IA
+#         ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+        
+#         # Nettoyage : parfois Gemini entoure le JSON avec
+#         ai_text = re.sub(r"^json\s*", "", ai_text, flags=re.IGNORECASE)
+#         ai_text = re.sub(r"\s*`$", "", ai_text).strip()
+        
+#         # Transformation du texte en vrai dictionnaire Python
+#         ai_data = json.loads(ai_text)
+#         return ai_data
+
+#     except Exception as e:
+#         print("Erreur Gemini (ou parsing JSON):", e)
+#         # Fallback de sécurité au cas où l'IA échoue (Ajout du job_theme par défaut à None)
+#         return {
+#             "summary": f"L’IA n’a pas pu générer de résumé pour '{title}'.",
+#             "company_name": "Non spécifié",
+#             "exact_location": "Non spécifié",
+#             "required_skills": [],
+#             "job_theme": None
+#         }
+
+
+
+
 def analyze_opportunity_with_gemini(title, category, source, description=""):
+    """
+    Analyse une opportunité via l'API Gemini et extrait les informations clés
+    sous forme de dictionnaire Python structuré.
+    """
     # Le prompt magique mis à jour avec la consigne 'job_theme'
     prompt = f"""Analyse l'opportunité suivante et extrais les informations clés.
 Titre: {title}
@@ -487,11 +552,18 @@ Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valid
         result = response.json()
         
         # Récupération du texte brut de l'IA
-        ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+        ai_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
         
-        # Nettoyage : parfois Gemini entoure le JSON avec
-        ai_text = re.sub(r"^json\s*", "", ai_text, flags=re.IGNORECASE)
-        ai_text = re.sub(r"\s*`$", "", ai_text).strip()
+        # 🔥 NETTOYAGE ULTRA-BLINDÉ : Extrait uniquement ce qui se trouve entre les premières et dernières accolades
+        json_match = re.search(r"(\{.*\})", ai_text, re.DOTALL)
+        if json_match:
+            ai_text = json_match.group(1)
+        else:
+            # Si aucune accolade n'est trouvée, on nettoie les balises markdown classiques
+            ai_text = re.sub(r"^`json\s*", "", ai_text, flags=re.IGNORECASE)
+            ai_text = re.sub(r"^\s*", "", ai_text)
+            ai_text = re.sub(r"\s*`$", "", ai_text)
+            ai_text = ai_text.strip()
         
         # Transformation du texte en vrai dictionnaire Python
         ai_data = json.loads(ai_text)
@@ -507,6 +579,7 @@ Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valid
             "required_skills": [],
             "job_theme": None
         }
+
 
 
 
@@ -5438,12 +5511,7 @@ def scrape_faci():
 
 
 
-
-
-
-
 def scrape_opportunity_desk():
-    # 💡 Liste de toutes les rubriques à regrouper dans "Institutions internationales"
     urls_categories = [
         "https://opportunitydesk.org/category/grants/",
         "https://opportunitydesk.org/category/fellowships/",
@@ -5456,6 +5524,13 @@ def scrape_opportunity_desk():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
 
+    # Dictionnaire de traduction rapide pour éviter le crash de parse_date_fr
+    months_en_to_fr = {
+        "january": "janvier", "february": "février", "march": "mars", "april": "avril",
+        "may": "mai", "june": "juin", "july": "juillet", "august": "août",
+        "september": "septembre", "october": "octobre", "november": "novembre", "december": "décembre"
+    }
+
     for base_url in urls_categories:
         try:
             print(f"🔄 Connexion à la catégorie : {base_url}")
@@ -5466,8 +5541,6 @@ def scrape_opportunity_desk():
                 continue
 
             soup = BeautifulSoup(resp.text, "html.parser")
-            
-            # Recherche de tous les articles de la liste
             articles = soup.find_all("article", class_="l-post")
             print(f"📋 {len(articles)} opportunités trouvées dans cette rubrique.")
 
@@ -5487,7 +5560,7 @@ def scrape_opportunity_desk():
                     raw_description = excerpt_tag.get_text(strip=True) if excerpt_tag else ""
                     description = re.sub(r'\s+', ' ', raw_description).strip()
 
-                    # Extraction de la date limite
+                    # Extraction de la deadline
                     date_end = "Permanent"
                     deadline_match = re.search(r'(?:Date limite|Deadline)\s*:\s*([^.]+)', description, re.IGNORECASE)
                     if deadline_match:
@@ -5499,42 +5572,75 @@ def scrape_opportunity_desk():
                     if time_tag and time_tag.get_text():
                         date_start = time_tag.get_text(strip=True)
 
-                    # 4. ID UNIQUE & SOURCE
+                    # 🛠 TRADUCTION ET NETTOYAGE DES DATES EN ANGLAIS (Pour éviter l'erreur de conversion int())
+                    for en, fr in months_en_to_fr.items():
+                        if en in date_start.lower():
+                            date_start = re.sub(en, fr, date_start, flags=re.IGNORECASE)
+                        if en in date_end.lower():
+                            date_end = re.sub(en, fr, date_end, flags=re.IGNORECASE)
+
+                    # Si malgré tout la date de fin contient des lettres non gérées et risque de faire planter parse_date_fr
+                    # On bascule sur "Permanent" ou "En cours" (géré par ton app Flutter suite à notre modif)
+                    if any(char.isalpha() for char in date_end) and "permanent" not in date_end.lower():
+                        # Si ton parse_date_fr refuse le texte libre, on standardise :
+                        date_end = "Permanent"
+                        date_start = "Ouvert"
+# 4. ID UNIQUE & SOURCE
                     slug = opportunity_url.strip("/").split("/")[-1]
                     opp_id = str(generate_numeric_id(f"OPP_DESK_{slug}", "2026"))
                     
                     source_name = "Opportunity Desk"
                     check_and_notify_new_source(source_name)
 
-                    # 5. 🛠 CONSTRUCTION SÉCURISÉE (On n'envoie pas 'location' dans les arguments)
-                    opportunity_item = build_opportunity(
-                        opp_id=opp_id,
-                        title=title,
-                        category="Institutions internationales",
-                        source=source_name,
-                        date_start=date_start,
-                        date_end=date_end,
-                        url=opportunity_url,
-                        badge_color="blue",
-                        description=description
-                    )
+                    # 5. CONSTRUCTION SÉCURISÉE DANS LE TRY
+                    try:
+                        opportunity_item = build_opportunity(
+                            opp_id=opp_id,
+                            title=title,
+                            category="Institutions internationales",
+                            source=source_name,
+                            date_start=date_start,
+                            date_end=date_end,
+                            url=opportunity_url,
+                            badge_color="blue",
+                            description=description
+                        )
+                    except Exception as gemini_or_parse_err:
+                        # 💡 SECURITÉ ABSOLUE : Si Gemini ou parse_date_fr plante, on génère un dictionnaire de secours manuellement !
+                        print(f"⚠️ Secours activé pour l'article en raison d'une erreur interne : {gemini_or_parse_err}")
+                        opportunity_item = {
+                            "id": opp_id,
+                            "source": source_name,
+                            "title": title,
+                            "category": "Institutions internationales",
+                            "views": 0,
+                            "date_start": date_start,
+                            "date_end": date_end,
+                            "company_name": "Non spécifié",
+                            "required_skills": [],
+                            "aiSummary": description[:150] + "...",
+                            "summary": f"Consulter l'offre sur le site",
+                            "badgeColor": "blue",
+                            "url": opportunity_url,
+                            "isFeatured": False,
+                            "imageUrl": "" # Laisse ton app ou choose_smart_image gérer
+                        }
                     
-                    # 💡 FORCE LA LOCALISATION : On écrase le "Côte d’Ivoire" généré automatiquement par ta fonction
+                    # Force la localisation à l'international dans tous les cas
                     opportunity_item["location"] = "International"
                     
                     items.append(opportunity_item)
 
                 except Exception as art_err:
-                    print(f"⚠️ Erreur lors du parsing d'un article : {art_err}")
+                    print(f"⚠️ Erreur critique sur l'article : {art_err}")
                     continue
             
-            # Petite pause entre les rubriques
             time.sleep(1)
+
         except Exception as e:
             print(f"❌ ERREUR GLOBALE sur la catégorie {base_url} : {e}")
 
     return items
-
 
 
 @app.get("/scrape/international")
