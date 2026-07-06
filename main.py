@@ -5439,6 +5439,9 @@ def scrape_faci():
 
 
 
+
+
+
 def scrape_opportunity_desk():
     # 💡 Liste de toutes les rubriques à regrouper dans "Institutions internationales"
     urls_categories = [
@@ -5482,57 +5485,56 @@ def scrape_opportunity_desk():
                     # 2. DESCRIPTION & EXTRACTION DE LA DATE DE CLÔTURE
                     excerpt_tag = article.find("div", class_="excerpt")
                     raw_description = excerpt_tag.get_text(strip=True) if excerpt_tag else ""
-                    
-                    # Nettoyage minimal du texte (ex: enlever les "Navigation :")
                     description = re.sub(r'\s+', ' ', raw_description).strip()
 
-                    # Extraction de la date limite (ex: "Date limite : 31 juillet 2026" ou "Deadline: July 31...")
-                    date_end = "Permanent"  # Valeur par défaut
-                    # Regex pour capturer le texte après "Date limite :" ou "Deadline :" jusqu'au premier point
+                    # Extraction de la date limite
+                    date_end = "Permanent"
                     deadline_match = re.search(r'(?:Date limite|Deadline)\s*:\s*([^.]+)', description, re.IGNORECASE)
-                    
                     if deadline_match:
                         date_end = deadline_match.group(1).strip()
                     
-                    # 3. DATE D'OUVERTURE (On prend la date de publication de l'article sur le site)
+                    # 3. DATE D'OUVERTURE
                     date_start = "Ouvert"
                     time_tag = article.find("time", class_="post-date")
                     if time_tag and time_tag.get_text():
                         date_start = time_tag.get_text(strip=True)
 
-                    # 4. ID UNIQUE (Généré à partir de l'identifiant unique dans l'URL WordPress)
-                    # L'URL ressemble à .../2026/07/03/gdpc-spotlight-research-grants...
+                    # 4. ID UNIQUE & SOURCE
                     slug = opportunity_url.strip("/").split("/")[-1]
                     opp_id = str(generate_numeric_id(f"OPP_DESK_{slug}", "2026"))
                     
                     source_name = "Opportunity Desk"
                     check_and_notify_new_source(source_name)
 
-                    # 5. AJOUT DE L'OBJET AVEC LE LIEU "International"
-                    items.append(build_opportunity(
+                    # 5. 🛠 CONSTRUCTION SÉCURISÉE (On n'envoie pas 'location' dans les arguments)
+                    opportunity_item = build_opportunity(
                         opp_id=opp_id,
                         title=title,
-                        category="Institutions internationales", # 👈 Regroupement unique demandé
+                        category="Institutions internationales",
                         source=source_name,
                         date_start=date_start,
                         date_end=date_end,
                         url=opportunity_url,
-                        badge_color="blue", # Couleur distinctive pour l'international
-                        description=description,
-                        location="International" # 👈 Évite le "Côte d'Ivoire" par défaut
-                    ))
+                        badge_color="blue",
+                        description=description
+                    )
+                    
+                    # 💡 FORCE LA LOCALISATION : On écrase le "Côte d’Ivoire" généré automatiquement par ta fonction
+                    opportunity_item["location"] = "International"
+                    
+                    items.append(opportunity_item)
 
                 except Exception as art_err:
                     print(f"⚠️ Erreur lors du parsing d'un article : {art_err}")
                     continue
             
-            # Petite pause de courtoisie entre les rubriques
+            # Petite pause entre les rubriques
             time.sleep(1)
-
         except Exception as e:
             print(f"❌ ERREUR GLOBALE sur la catégorie {base_url} : {e}")
 
     return items
+
 
 
 @app.get("/scrape/international")
