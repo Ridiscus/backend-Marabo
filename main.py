@@ -5439,6 +5439,129 @@ def scrape_faci():
 
 
 
+def scrape_opportunity_desk():
+    # 💡 Liste de toutes les rubriques à regrouper dans "Institutions internationales"
+    urls_categories = [
+        "https://opportunitydesk.org/category/grants/",
+        "https://opportunitydesk.org/category/fellowships/",
+        "https://opportunitydesk.org/category/fellowships-and-scholarships/",
+        "https://opportunitydesk.org/category/contests/"
+    ]
+    
+    items = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+
+    for base_url in urls_categories:
+        try:
+            print(f"🔄 Connexion à la catégorie : {base_url}")
+            resp = requests.get(base_url, headers=headers, timeout=20)
+            
+            if resp.status_code != 200:
+                print(f"⚠️ Erreur HTTP {resp.status_code} sur {base_url}")
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            
+            # Recherche de tous les articles de la liste
+            articles = soup.find_all("article", class_="l-post")
+            print(f"📋 {len(articles)} opportunités trouvées dans cette rubrique.")
+
+            for article in articles:
+                try:
+                    # 1. LIEN ET TITRE
+                    title_tag = article.find("h2", class_="post-title")
+                    if not title_tag or not title_tag.find("a"):
+                        continue
+                    
+                    a_tag = title_tag.find("a")
+                    title = a_tag.get_text(strip=True)
+                    opportunity_url = a_tag["href"]
+
+                    # 2. DESCRIPTION & EXTRACTION DE LA DATE DE CLÔTURE
+                    excerpt_tag = article.find("div", class_="excerpt")
+                    raw_description = excerpt_tag.get_text(strip=True) if excerpt_tag else ""
+                    
+                    # Nettoyage minimal du texte (ex: enlever les "Navigation :")
+                    description = re.sub(r'\s+', ' ', raw_description).strip()
+
+                    # Extraction de la date limite (ex: "Date limite : 31 juillet 2026" ou "Deadline: July 31...")
+                    date_end = "Permanent"  # Valeur par défaut
+                    # Regex pour capturer le texte après "Date limite :" ou "Deadline :" jusqu'au premier point
+                    deadline_match = re.search(r'(?:Date limite|Deadline)\s*:\s*([^.]+)', description, re.IGNORECASE)
+                    
+                    if deadline_match:
+                        date_end = deadline_match.group(1).strip()
+                    
+                    # 3. DATE D'OUVERTURE (On prend la date de publication de l'article sur le site)
+                    date_start = "Ouvert"
+                    time_tag = article.find("time", class_="post-date")
+                    if time_tag and time_tag.get_text():
+                        date_start = time_tag.get_text(strip=True)
+
+                    # 4. ID UNIQUE (Généré à partir de l'identifiant unique dans l'URL WordPress)
+                    # L'URL ressemble à .../2026/07/03/gdpc-spotlight-research-grants...
+                    slug = opportunity_url.strip("/").split("/")[-1]
+                    opp_id = str(generate_numeric_id(f"OPP_DESK_{slug}", "2026"))
+                    
+                    source_name = "Opportunity Desk"
+                    check_and_notify_new_source(source_name)
+
+                    # 5. AJOUT DE L'OBJET AVEC LE LIEU "International"
+                    items.append(build_opportunity(
+                        opp_id=opp_id,
+                        title=title,
+                        category="Institutions internationales", # 👈 Regroupement unique demandé
+                        source=source_name,
+                        date_start=date_start,
+                        date_end=date_end,
+                        url=opportunity_url,
+                        badge_color="blue", # Couleur distinctive pour l'international
+                        description=description,
+                        location="International" # 👈 Évite le "Côte d'Ivoire" par défaut
+                    ))
+
+                except Exception as art_err:
+                    print(f"⚠️ Erreur lors du parsing d'un article : {art_err}")
+                    continue
+            
+            # Petite pause de courtoisie entre les rubriques
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"❌ ERREUR GLOBALE sur la catégorie {base_url} : {e}")
+
+    return items
+
+
+@app.get("/scrape/international")
+def trigger_international_scrape():
+    try:
+        print("🚀 Lancement du scraping Opportunity Desk (Institutions internationales)...")
+        # 1. Récupération de toutes les opportunités des 4 rubriques
+        data = scrape_opportunity_desk()
+        
+        # 2. Sauvegarde dans Firestore
+        count = 0
+        for item in data:
+            doc_ref = db.collection("opportunities").document(item["id"])
+            
+            # Si elle n'existe pas en BDD, on l'ajoute
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        return {"status": "success", "added": count, "data": data}
+        
+    except Exception as e:
+        print(f"❌ Erreur lors du traitement des institutions internationales : {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
 
 # 👈 AJOUTE CETTE LIGNE : Elle va chercher la clé secrète dans Render
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -5521,6 +5644,7 @@ def run_all_scrapers():
         scrape_projob_ivoire,
         scrape_sociumjob,
         scrape_inphb,
+        scrape_disasterready,
     ]
 
     ops = []
