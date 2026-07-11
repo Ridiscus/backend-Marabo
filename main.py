@@ -5685,97 +5685,110 @@ def scrape_african_union_jobs():
     
     with sync_playwright() as p:
         try:
-            # Lancement d'un vrai navigateur Chromium en tâche de fond
             browser = p.chromium.launch(headless=True)
-            
-            # Configuration d'un contexte utilisateur réaliste
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 locale="fr-FR"
             )
-            
             page = context.new_page()
             
             print(f"🔄 Navigation vers le portail : {SOURCE_URL}")
-            # On attend que le réseau soit totalement inactif (fin du chargement de l'API React)
             page.goto(SOURCE_URL, wait_until="networkidle", timeout=45000)
-            
-            # Petit temps de pause pour garantir l'injection des composants
             time.sleep(3)
             
-            # Extraction du contenu HTML généré par le JavaScript
-            html_content = page.content()
-            
-            # Fermeture propre du navigateur
+            page_index = 1
+            while True:
+                print(f"📄 Analyse de la page {page_index}...")
+                html_content = page.content()
+                soup = BeautifulSoup(html_content, "html.parser")
+                
+                job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
+                if not job_cards:
+                    print(f"⚠️ Plus aucune carte trouvée à la page {page_index}. Fin du scraping.")
+                    break
+                    
+                print(f"📋 {len(job_cards)} opportunités trouvées sur cette page.")
+                
+                for card in job_cards:
+                    try:
+                        title_link = card.find("a", attrs={"data-testid": re.compile(r"jobCardTitle")}) or card.find("a", class_=re.compile(r"jobCardTitle"))
+                        if not title_link:
+                            continue
+                            
+                        title = title_link.get_text(strip=True)
+                        relative_url = title_link.get("href", "")
+                        opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
+                        
+                        # Cibler les spans de valeur avec la classe dynamique ou l'attribut global
+                        footer_spans = card.find_all("span", attrs={"data-help-id": re.compile(r"jobCardFooterValue")})
+                        if not footer_spans:
+                            footer_spans = card.select("[class*='jobCardFooterValue']")
+                            
+                        values = [s.get_text(strip=True) for s in footer_spans]
+                        
+                        if len(values) < 5:
+                            continue
+                            
+                        # Indexation basée sur la structure exacte de ton HTML :
+                        # values[0] -> "3009" (ID)
+                        # values[1] -> "GA3" (Grade)
+                        # values[2] -> "Ghana" (Pays / Location)
+                        # values[3] -> "17/06/2026" (Date de début caché !)
+                        # values[4] -> "07/17/2026" (Date de fin / End Date)
+                        # values[6] -> "Secrétariat de la ZLECAf" (Compagnie)
+                        
+                        job_id = values[0]
+                        country = values[2]
+                        date_start = values[3]  # Enregistre correctement la date de début trouvée
+                        date_end = values[4]
+                        company_name = values[6] if len(values) > 6 else "Union Africaine"
+                        
+                        opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
+                        description_fallback = f"Poste de '{title}' basé au {country}. Date de publication : {date_start}. Limite : {date_end}."
+                        try:
+                            opportunity_item = build_opportunity(
+                                opp_id=opp_id, title=title, category="Institutions internationales",
+                                source=SOURCE_NAME, date_start=date_start, date_end=date_end,
+                                url=opportunity_url, badge_color="cyan", description=description_fallback
+                            )
+                        except Exception:
+                            opportunity_item = {
+                                "id": opp_id, "source": SOURCE_NAME, "title": title,
+                                "category": "Institutions internationales", "views": 0,
+                                "date_start": date_start, "date_end": date_end,
+                                "company_name": company_name, "required_skills": [],
+                                "aiSummary": description_fallback, "summary": f"Inscrivez-vous du {date_start} au {date_end}",
+                                "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
+                            }
+                        
+                        opportunity_item["location"] = country
+                        items.append(opportunity_item)
+                        
+                    except Exception:
+                        continue
+                
+                # --- STRATÉGIE DE PAGINATION PAR CLIC INTERACTIF ---
+                # Cherche le bouton ou le lien de pagination "Suivant" / ">"
+                # SuccessFactors utilise généralement un aria-label ou un texte pour l'identification
+                next_button = page.locator("button[aria-label*='Next'], a[aria-label*='Next'], button[aria-label*='Suivant'], [data-testid*='next']").first
+                
+                # Vérification si le bouton existe, est visible et n'est pas désactivé
+                if next_button and next_button.is_visible() and next_button.is_enabled():
+                    print("➡️ Bouton 'Suivant' détecté. Passage à la page suivante...")
+                    next_button.click()
+                    time.sleep(4)  # On laisse le temps à l'application React de rafraîchir le DOM
+                    page_index += 1
+                else:
+                    print("🏁 Derniere page atteinte ou aucun bouton 'Suivant' actif.")
+                    break
+                    
             browser.close()
             
-            # --- PARSING DU CODE SOURCE RENDU ---
-            soup = BeautifulSoup(html_content, "html.parser")
-            
-            # Recherche des composants <li> que tu as identifiés
-            job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
-            
-            if not job_cards:
-                print("❌ Toujours aucun élément détecté, même avec Playwright. Le sélecteur HTML a peut-être changé.")
-                return items
-                
-            print(f"📋 {len(job_cards)} opportunités détectées avec succès grâce au rendu JavaScript !")
-            
-            for card in job_cards:
-                try:
-                    # Recherche du lien de titre
-                    title_link = card.find("a", attrs={"data-testid": re.compile(r"jobCardTitle")}) or card.find("a", class_=re.compile(r"jobCardTitle"))
-                    if not title_link:
-                        continue
-                        
-                    title = title_link.get_text(strip=True)
-                    relative_url = title_link.get("href", "")
-                    opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
-                    
-                    # Récupération de toutes les valeurs du footer (ID, Ville, Date, etc.)
-                    footer_spans = card.find_all("span", attrs={"data-help-id": "jobCardFooterValue"})
-                    if not footer_spans:
-                        footer_spans = card.find_all("span", class_=re.compile(r"jobCardFooterValue"))
-                        
-                    values = [s.get_text(strip=True) for s in footer_spans]
-                    
-                    # Sécurisation des indices basé sur ton exemple HTML exact
-                    job_id = values[0] if len(values) > 0 else "N/A"
-                    country = values[2] if len(values) > 2 else "International"
-                    date_end = values[4] if len(values) > 4 else "Permanent"
-                    company_name = values[6] if len(values) > 6 else "Union Africaine"
-                    
-                    opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-                    description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}."
-                    try:
-                        opportunity_item = build_opportunity(
-                            opp_id=opp_id, title=title, category="Institutions internationales",
-                            source=SOURCE_NAME, date_start="Ouvert", date_end=date_end,
-                            url=opportunity_url, badge_color="cyan", description=description_fallback
-                        )
-                    except Exception:
-                        opportunity_item = {
-                            "id": opp_id, "source": SOURCE_NAME, "title": title,
-                            "category": "Institutions internationales", "views": 0,
-                            "date_start": "Ouvert", "date_end": date_end,
-                            "company_name": company_name, "required_skills": [],
-                            "aiSummary": description_fallback, "summary": "Consulter l'offre sur le portail de l'Union Africaine",
-                            "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
-                        }
-                    
-                    opportunity_item["location"] = country
-                    items.append(opportunity_item)
-                    
-                except Exception as item_err:
-                    continue
-                    
         except Exception as e:
             print(f"❌ ERREUR LORS DE L'EXÉCUTION DE PLAYWRIGHT : {e}")
             
+    print(f"💡 Fin du traitement. Total récupéré : {len(items)} opportunités.")
     return items
-
-
-
 
 
 
