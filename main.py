@@ -5669,12 +5669,13 @@ def trigger_international_scrape():
 
 
 
-import time
+
+import json
+import re
 import cloudscraper
 
 SOURCE_NAME = "Union Africaine"
-# 🎯 Utilisation du Endpoint REST Public identifié dans le code JS
-API_URL = "https://jobs.au.int/rest/recruiting/career/v1/jobs"
+SOURCE_URL = "https://jobs.au.int/go/Tous-les-Emplois/9831857/"
 BASE_URL = "https://jobs.au.int"
 
 def scrape_african_union_jobs():
@@ -5688,56 +5689,77 @@ def scrape_african_union_jobs():
         }
     )
 
-    # En-têtes standards pour l'API REST publique
     headers = {
         "Accept": "application/json, text/plain, */*",
-        "Content-Type": "application/json",
         "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-        "Origin": "https://jobs.au.int",
-        "Referer": "https://jobs.au.int/go/Tous-les-Emplois/9831857/"
-    }
-
-    # Payload EXACT calqué sur le modèle "postData" de ton fichier JS
-    payload = {
-        "locale": "fr_FR",       # On force en français pour récupérer les titres traduits
-        "pageNumber": 0,
-        "sortBy": "",
-        "keywords": "",
-        "location": "",
-        "facetFilters": {},
-        "brand": "",
-        "skills": [],
-        "categoryId": 0
+        "Referer": SOURCE_URL
     }
 
     try:
-        print(f"🔄 Interrogation de l'API REST SuccessFactors de l'UA : {API_URL}")
-        resp = scraper.post(API_URL, json=payload, headers=headers, timeout=20)
+        print(f"🔄 Étape 1 : Analyse de la page d'accueil pour extraire la configuration SAP...")
+        init_resp = scraper.get(SOURCE_URL, headers=headers, timeout=20)
         
-        if resp.status_code != 200:
-            print(f"⚠️ Échec de l'API (Code {resp.status_code}). Tentative avec le locale US...")
-            payload["locale"] = "en_US"
-            resp = scraper.post(API_URL, json=payload, headers=headers, timeout=20)
+        if init_resp.status_code != 200:
+            print(f"❌ Impossible de charger la page principale (Code {init_resp.status_code})")
+            return items
 
-        if resp.status_code != 200:
-            print(f"❌ Impossible d'accéder à l'API publique. Code HTTP : {resp.status_code}")
+        html_content = init_resp.text
+
+        # 🕵️‍♂️ Extraction de l'URL de l'API réelle cachée dans le code source
+        # On cherche window.resultStyles = { ... apiURL: "..." }
+        api_url_match = re.search(r'apiURL\s*:\s*["\']([^"\']+)["\']', html_content)
+        company_id_match = re.search(r'companyId\s*:\s*["\']([^"\']+)["\']', html_content)
+
+        # Valeurs par défaut si la regex ne trouve rien, mais mise à jour dynamique sinon
+        real_api_base = api_url_match.group(1) if api_url_match else "https://jobs.au.int"
+        company_id = company_id_match.group(1) if company_id_match else ""
+
+        # Reconstruction de l'URL API REST correcte
+        # D'après ton code JS : url = ${apiUrl}/rest/recruiting/career/v1/jobs;
+        target_api_url = f"{real_api_base.rstrip('/')}/rest/recruiting/career/v1/jobs"
+        
+        print(f"🎯 Configuration détectée -> API Base : {real_api_base} | CompanyId : {company_id}")
+        print(f"🔄 Étape 2 : Envoi de la requête vers l'API dédiée : {target_api_url}")
+
+        # Ajustement des headers avec les données extraites (vu dans ton extrait JS)
+        if company_id:
+            headers["successfactors-companyid"] = company_id
+        headers["Content-Type"] = "application/json"
+
+        payload = {
+            "locale": "fr_FR",
+            "pageNumber": 0,
+            "sortBy": "",
+            "keywords": "",
+            "location": "",
+            "facetFilters": {},
+            "brand": "",
+            "skills": [],
+            "categoryId": 0
+        }
+
+        resp = scraper.post(target_api_url, json=payload, headers=headers, timeout=20)
+
+        # Si le format fr_FR échoue ou renvoie du vide, on bascule sur la langue racine
+        if resp.status_code != 200 or not resp.text.strip():
+            print("⚠️ Échec ou réponse vide. Tentative de repli en anglais (en_US)...")
+            payload["locale"] = "en_US"
+            resp = scraper.post(target_api_url, json=payload, headers=headers, timeout=20)
+
+        if not resp.text.strip():
+            print("❌ Le serveur a répondu par un corps vide (Empty Body).")
             return items
 
         data = resp.json()
-        
-        # Structure de retour standard SAP SuccessFactors (contient une liste d'objets ou un dictionnaire)
         jobs_list = data.get("jobs") or data.get("results") or data.get("content") or []
-        
-        # Si la structure est encapsulée différemment :
-        if isinstance(data, dict) and not jobs_list:
-            if "searchResults" in data:
-                jobs_list = data["searchResults"].get("results", [])
 
-        print(f"📋 {len(jobs_list)} opportunités récupérées directement depuis l'API REST.")
+        if isinstance(data, dict) and not jobs_list and "searchResults" in data:
+            jobs_list = data["searchResults"].get("results", [])
+
+        print(f"📋 {len(jobs_list)} opportunités récupérées avec succès !")
 
         for job in jobs_list:
             try:
-                # Extraction propre depuis les clés JSON natives de l'API
                 title = job.get("title") or job.get("jobTitle")
                 job_id = job.get("id") or job.get("jobReqId") or job.get("reqId")
                 
@@ -5745,67 +5767,44 @@ def scrape_african_union_jobs():
                     continue
 
                 country = job.get("location") or job.get("country") or "International"
-                # Souvent retourné sous forme de string "Addis Abeba, ET" ou liste
                 if isinstance(country, list) and len(country) > 0:
                     country = country[0]
                 elif isinstance(country, dict):
                     country = country.get("country") or country.get("name") or "International"
-
-                # Nettoyage de la chaîne de localisation
                 country_clean = str(country).split(",")[-1].strip()
-
-                # Dates
                 date_start = job.get("postingDate") or "Ouvert"
                 date_end = job.get("endDate") or job.get("closingDate") or "Permanent"
                 
-                # Reconstitution de l'URL de l'offre
-                # Souvent basé sur un slug optionnel, mais l'identifiant /job/xxx/id/ est l'accès universel
                 opportunity_url = f"{BASE_URL}/job/id/{job_id}/"
-
                 opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-                check_and_notify_new_source(SOURCE_NAME)
 
-                description_fallback = f"Poste de '{title}' basé à {country_clean}. Organisation : Union Africaine. Limite : {date_end}."
+                description_fallback = f"Poste de '{title}' basé à {country_clean}. Organisation : Union Africaine."
+
                 try:
                     opportunity_item = build_opportunity(
-                        opp_id=opp_id,
-                        title=title,
-                        category="Institutions internationales",
-                        source=SOURCE_NAME,
-                        date_start=date_start,
-                        date_end=date_end,
-                        url=opportunity_url,
-                        badge_color="cyan",
-                        description=description_fallback
+                        opp_id=opp_id, title=title, category="Institutions internationales",
+                        source=SOURCE_NAME, date_start=date_start, date_end=date_end,
+                        url=opportunity_url, badge_color="cyan", description=description_fallback
                     )
                 except Exception:
                     opportunity_item = {
-                        "id": opp_id,
-                        "source": SOURCE_NAME,
-                        "title": title,
-                        "category": "Institutions internationales",
-                        "views": 0,
-                        "date_start": date_start,
-                        "date_end": date_end,
-                        "company_name": "Union Africaine",
-                        "required_skills": [],
-                        "aiSummary": description_fallback,
-                        "summary": "Consulter l'offre sur le portail de l'Union Africaine",
-                        "badgeColor": "cyan",
-                        "url": opportunity_url,
-                        "isFeatured": False,
-                        "imageUrl": ""
+                        "id": opp_id, "source": SOURCE_NAME, "title": title,
+                        "category": "Institutions internationales", "views": 0,
+                        "date_start": date_start, "date_end": date_end,
+                        "company_name": "Union Africaine", "required_skills": [],
+                        "aiSummary": description_fallback, "summary": "Consulter l'offre sur le portail de l'Union Africaine",
+                        "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
                     }
                 
                 opportunity_item["location"] = country_clean
                 items.append(opportunity_item)
 
             except Exception as item_err:
-                print(f"⚠️ Erreur lors du traitement du JSON d'un job : {item_err}")
+                print(f"⚠️ Erreur sur un élément du JSON : {item_err}")
                 continue
 
     except Exception as e:
-        print(f"❌ ERREUR GLOBALE lors de l'appel API REST : {e}")
+        print(f"❌ ERREUR GLOBALE lors de la résolution dynamique : {e}")
 
     return items
 
