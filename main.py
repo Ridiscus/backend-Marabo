@@ -5742,23 +5742,33 @@ def scrape_african_union_jobs():
                         opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
                         description_fallback = f"Poste de '{title}' basé au {country}. Publié le : {date_start}. Date limite : {date_end}."
                         
+                         # Ton dictionnaire de repli ou de construction
                         try:
                             opportunity_item = build_opportunity(
                                 opp_id=opp_id, title=title, category="Institutions internationales",
-                                source=SOURCE_NAME, date_start=date_start, date_end=date_end,
+                                source=SOURCE_NAME, date_start=str(date_start), date_end=str(date_end),
                                 url=opportunity_url, badge_color="cyan", description=description_fallback
                             )
                         except Exception:
                             opportunity_item = {
                                 "id": opp_id, "source": SOURCE_NAME, "title": title,
                                 "category": "Institutions internationales", "views": 0,
-                                "date_start": date_start, "date_end": date_end,
+                                "date_start": str(date_start), "date_end": str(date_end),
                                 "company_name": company_name, "required_skills": [],
                                 "aiSummary": description_fallback, "summary": f"Inscrivez-vous du {date_start} au {date_end}",
                                 "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
                             }
                         
                         opportunity_item["location"] = country
+                        
+                        # 🛡️ SÉCURISATION ANTIM-PLANTAGE FIREBASE : On force la conversion de TOUTES les dates en String
+                        for key in ["date_start", "date_end", "created_at", "updated_at"]:
+                            if key in opportunity_item:
+                                if hasattr(opportunity_item[key], "strftime"): # Si c'est un objet datetime/date
+                                    opportunity_item[key] = opportunity_item[key].strftime("%Y-%m-%d")
+                                else:
+                                    opportunity_item[key] = str(opportunity_item[key])
+
                         items.append(opportunity_item)
                         
                     except Exception:
