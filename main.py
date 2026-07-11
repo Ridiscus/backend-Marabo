@@ -5721,12 +5721,13 @@ def scrape_african_union_jobs():
         print(f"🎯 Configuration détectée -> API Base : {real_api_base} | CompanyId : {company_id}")
         print(f"🔄 Étape 2 : Envoi de la requête vers l'API dédiée : {target_api_url}")
 
-        # Ajustement des headers avec les données extraites (vu dans ton extrait JS)
         if company_id:
             headers["successfactors-companyid"] = company_id
         headers["Content-Type"] = "application/json"
 
+        # 🎯 RECTIFICATION : SuccessFactors exige le companyId dans le JSON pour valider la requête publique
         payload = {
+            "companyId": company_id,  # <-- L'élément manquant indispensable
             "locale": "fr_FR",
             "pageNumber": 0,
             "sortBy": "",
