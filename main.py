@@ -5669,16 +5669,17 @@ def trigger_international_scrape():
 
 
 
-import cloudscraper  # <-- Remplace requests pour contourner le blocage
+import cloudscraper
+from bs4 import BeautifulSoup
 
 SOURCE_NAME = "Union Africaine"
-SOURCE_URL = "http://jobs.au.int/?from=email&refid=16955169902&utm_source=J2WEmail&source=2&eid=128102-202656101256-24583230602&locale=fr_FR"
-BASE_URL = "http://jobs.au.int"
+# 🎯 Utilisation de la bonne URL stable
+SOURCE_URL = "https://jobs.au.int/go/Tous-les-Emplois/9831857/"
+BASE_URL = "https://jobs.au.int"
 
 def scrape_african_union_jobs():
     items = []
     
-    # Création d'un scraper qui contourne les protections anti-bot (Cloudflare, etc.)
     scraper = cloudscraper.create_scraper(
         browser={
             'browser': 'chrome',
@@ -5688,111 +5689,111 @@ def scrape_african_union_jobs():
     )
 
     try:
-        print(f"🔄 Tentative de contournement et connexion à l'UA : {SOURCE_URL}")
+        print(f"🔄 Connexion au portail stable de l'UA : {SOURCE_URL}")
         resp = scraper.get(SOURCE_URL, timeout=30)
         
         if resp.status_code != 200:
             print(f"⚠️ Le site a refusé la connexion. Code HTTP : {resp.status_code}")
             return items
 
-        html_content = resp.text
-        soup = BeautifulSoup(html_content, "html.parser")
+        soup = BeautifulSoup(resp.text, "html.parser")
         
-        # --- STRATÉGIE 1 : Extraction du JSON brut via Regex (Plus fiable que soup si le HTML est altéré) ---
-        jobs_list = []
-        match = re.search(r'"jobs"\s*:\s*(\[.*?\])', html_content)
+        # 🔍 Ciblage du tableau de résultats de SuccessFactors
+        job_rows = soup.find_all("tr", class_="data-row")
         
-        if match:
+        if not job_rows:
+            # Plan B si la classe diffère légèrement sur certaines langues
+            table = soup.find("table", id="searchResultsTable") or soup.find("table", class_=re.compile(r"searchResultsTable"))
+            if table:
+                job_rows = table.find_all("tr")[1:] # On ignore l'en-tête
+
+        print(f"📋 {len(job_rows)} opportunités détectées sur la page SuccessFactors.")
+
+        for row in job_rows:
             try:
-                jobs_list = json.loads(match.group(1))
-                print(f"📋 {len(jobs_list)} opportunités trouvées via extraction Regex du JSON.")
-            except Exception:
-                pass
-
-        # --- STRATÉGIE 2 : Repli sur le DOM HTML si la structure fournie est présente ---
-        if not jobs_list:
-            job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
-            if job_cards:
-                print(f"📋 {len(job_cards)} opportunités détectées via le DOM HTML.")
-                return parse_html_cards(job_cards)  # On utilise la structure HTML fournie au besoin
-
-        if not jobs_list:
-            print("❌ Échec critique : Le site renvoie une page vide ou un challenge de sécurité impossible à passer sans navigateur lourd.")
-            return items
-
-        # --- TRAITEMENT DES DONNÉES EXTRAITES ---
-        for job in jobs_list:
-            try:
-                title = job.get("title") or job.get("jobTitle") or "Opportunité"
-                job_id = job.get("id") or job.get("jobId") or "UA"
-                country = job.get("country") or job.get("location") or "International"
-                company_name = job.get("company") or job.get("facility") or "Union Africaine"
-                date_start = job.get("postingDate") or "Ouvert"
-                date_end = job.get("endDate") or "Permanent"
+                # 1. Extraction du Titre et du Lien
+                title_span = row.find("span", class_="jobTitle")
+                title_link = title_span.find("a") if title_span else row.find("a", class_=re.compile(r"jobTitle"))
                 
-                opportunity_url = f"{BASE_URL}/job/id/{job_id}"
+                if not title_link:
+                    continue
+                
+                title = title_link.get_text(strip=True)
+                relative_url = title_link.get("href", "")
+                opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
+
+                # 2. Extraction de la Localisation (Pays)
+                # SuccessFactors met souvent la localisation dans un span class="jobLocation"
+                location_span = row.find("span", class_="jobLocation")
+                location_text = location_span.get_text(strip=True) if location_span else "International"
+                
+                # Nettoyage rapide de la localisation (ex: "Addis Abeba, ET" -> "Ethiopia" ou extraction du pays)
+                country = "International"
+                if location_text:
+                    # On prend le dernier élément après la virgule si présent
+                    parts = [p.strip() for p in location_text.split(",")]
+                    country = parts[-1] if parts else location_text
+
+                # 3. Extraction de la Date de publication
+                date_span = row.find("span", class_="jobDate")
+                date_start = date_span.get_text(strip=True) if date_span else "Ouvert"
+                
+                # SuccessFactors n'affiche pas toujours la date de clôture dans le tableau
+                date_end = "Permanent" 
+
+                # 4. Génération de l'ID Unique à partir de l'URL du job (qui contient son ID natif)
+                # Exemple d'URL : /job/Addis-Abeba-Poste-de-stage/123456700/
+                job_id_match = re.search(r'/(\d+)/', opportunity_url)
+                job_id = job_id_match.group(1) if job_id_match else str(len(title))
+                
                 opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-                
-                description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}. Limite : {date_end}."
+                check_and_notify_new_source(SOURCE_NAME)
 
+                description_fallback = f"Opportunité de carrière à l'Union Africaine : '{title}'. Localisation : {location_text}."
+
+                # 5. Envoi à Gemini ou structuration finale
                 try:
                     opportunity_item = build_opportunity(
-                        opp_id=opp_id, title=title, category="Institutions internationales",
-                        source=SOURCE_NAME, date_start=date_start, date_end=date_end,
-                        url=opportunity_url, badge_color="cyan", description=description_fallback
+                        opp_id=opp_id,
+                        title=title,
+                        category="Institutions internationales",
+                        source=SOURCE_NAME,
+                        date_start=date_start,
+                        date_end=date_end,
+                        url=opportunity_url,
+                        badge_color="cyan",
+                        description=description_fallback
                     )
                 except Exception:
                     opportunity_item = {
-                        "id": opp_id, "source": SOURCE_NAME, "title": title,
-                        "category": "Institutions internationales", "views": 0,
-                        "date_start": date_start, "date_end": date_end,
-                        "company_name": company_name, "required_skills": [],
-                        "aiSummary": description_fallback, "summary": "Consulter l'offre sur le portail de l'Union Africaine",
-                        "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
+                        "id": opp_id,
+                        "source": SOURCE_NAME,
+                        "title": title,
+                        "category": "Institutions internationales",
+                        "views": 0,
+                        "date_start": date_start,
+                        "date_end": date_end,
+                        "company_name": "Union Africaine",
+                        "required_skills": [],
+                        "aiSummary": description_fallback,
+                        "summary": "Consulter l'offre sur le portail de l'Union Africaine",
+                        "badgeColor": "cyan",
+                        "url": opportunity_url,
+                        "isFeatured": False,
+                        "imageUrl": ""
                     }
                 
+                # Sémantique finale de localisation
                 opportunity_item["location"] = country
                 items.append(opportunity_item)
-            except Exception as item_err:
-                print(f"⚠️ Erreur lors du traitement d'un poste : {item_err}")
+
+            except Exception as row_err:
+                print(f"⚠️ Erreur lors du traitement d'une ligne de tableau : {row_err}")
                 continue
 
     except Exception as e:
-        print(f"❌ ERREUR GLOBALE : {e}")
+        print(f"❌ ERREUR GLOBALE lors du scraping de l'Union Africaine : {e}")
 
-    return items
-
-def parse_html_cards(job_cards):
-    """Fonction de secours si le HTML brut contient bien les balises fournies"""
-    items = []
-    for card in job_cards:
-        try:
-            title_link = card.find("a", class_=re.compile(r"jobCardTitle"))
-            if not title_link: continue
-            title = title_link.get_text(strip=True)
-            relative_url = title_link.get("href", "")
-            opportunity_url = f"{BASE_URL}{relative_url}"
-            
-            footer_spans = card.find_all("span", class_=re.compile(r"JobsList_jobCardFooterValue"))
-            footer_values = [s.get_text(strip=True) for s in footer_spans]
-            
-            job_id = footer_values[0] if len(footer_values) > 0 else "UA"
-            country = footer_values[2] if len(footer_values) > 2 else "International"
-            date_end = footer_values[5] if len(footer_values) > 5 else "Permanent"
-            company_name = footer_values[7] if len(footer_values) > 7 else "Union Africaine"
-            
-            opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-            
-            items.append({
-                "id": opp_id, "source": SOURCE_NAME, "title": title,
-                "category": "Institutions internationales", "views": 0,
-                "date_start": "Ouvert", "date_end": date_end, "location": country,
-                "company_name": company_name, "required_skills": [],
-                "aiSummary": f"Poste de '{title}' basé au {country}.", "summary": "Consulter l'offre",
-                "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
-            })
-        except Exception:
-            continue
     return items
 
 
