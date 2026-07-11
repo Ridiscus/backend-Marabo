@@ -5668,7 +5668,6 @@ def trigger_international_scrape():
 
 
 
-
 import time
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
@@ -5699,6 +5698,10 @@ def scrape_african_union_jobs():
             page_index = 1
             while True:
                 print(f"📄 Analyse de la page {page_index}...")
+                
+                # Attendre que les éléments de la liste des jobs soient visibles à l'écran
+                page.wait_for_selector('li[data-testid="jobCard"]', timeout=15000)
+                
                 html_content = page.content()
                 soup = BeautifulSoup(html_content, "html.parser")
                 
@@ -5719,7 +5722,7 @@ def scrape_african_union_jobs():
                         relative_url = title_link.get("href", "")
                         opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
                         
-                        # Cibler les spans de valeur avec la classe dynamique ou l'attribut global
+                        # Cibler les spans de valeur du footer
                         footer_spans = card.find_all("span", attrs={"data-help-id": re.compile(r"jobCardFooterValue")})
                         if not footer_spans:
                             footer_spans = card.select("[class*='jobCardFooterValue']")
@@ -5728,23 +5731,17 @@ def scrape_african_union_jobs():
                         
                         if len(values) < 5:
                             continue
-                            
-                        # Indexation basée sur la structure exacte de ton HTML :
-                        # values[0] -> "3009" (ID)
-                        # values[1] -> "GA3" (Grade)
-                        # values[2] -> "Ghana" (Pays / Location)
-                        # values[3] -> "17/06/2026" (Date de début caché !)
-                        # values[4] -> "07/17/2026" (Date de fin / End Date)
-                        # values[6] -> "Secrétariat de la ZLECAf" (Compagnie)
                         
+                        # --- EXTRACATION DYNAMIQUE ET SÉCURISÉE ---
                         job_id = values[0]
                         country = values[2]
-                        date_start = values[3]  # Enregistre correctement la date de début trouvée
-                        date_end = values[4]
+                        date_start = values[3]  # Capture la date cachée du milieu (Ex: 17/06/2026)
+                        date_end = values[4]    # Capture la End Date explicite (Ex: 07/17/2026)
                         company_name = values[6] if len(values) > 6 else "Union Africaine"
                         
                         opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-                        description_fallback = f"Poste de '{title}' basé au {country}. Date de publication : {date_start}. Limite : {date_end}."
+                        description_fallback = f"Poste de '{title}' basé au {country}. Publié le : {date_start}. Date limite : {date_end}."
+                        
                         try:
                             opportunity_item = build_opportunity(
                                 opp_id=opp_id, title=title, category="Institutions internationales",
@@ -5767,19 +5764,32 @@ def scrape_african_union_jobs():
                     except Exception:
                         continue
                 
-                # --- STRATÉGIE DE PAGINATION PAR CLIC INTERACTIF ---
-                # Cherche le bouton ou le lien de pagination "Suivant" / ">"
-                # SuccessFactors utilise généralement un aria-label ou un texte pour l'identification
-                next_button = page.locator("button[aria-label*='Next'], a[aria-label*='Next'], button[aria-label*='Suivant'], [data-testid*='next']").first
+                # --- STRATÉGIE DE PAGINATION PAR IDENTIFIANT UNIQUE ---
+                # On utilise l'ID exact détecté dans le nav pour cibler le bouton "Suivant"
+                next_button = page.locator("#goToNextPageBtn")
                 
-                # Vérification si le bouton existe, est visible et n'est pas désactivé
-                if next_button and next_button.is_visible() and next_button.is_enabled():
-                    print("➡️ Bouton 'Suivant' détecté. Passage à la page suivante...")
+                if next_button.count() > 0 and next_button.is_visible() and next_button.is_enabled():
+                    print("➡️ Bouton 'Suivant' détecté. Clic et passage à la page suivante...")
+                    
+                    # On mémorise l'ID du bouton de la page courante pour vérifier le changement
+                    current_page_text = page.locator("button.Paginator_currentBtn__6vdxQ").inner_text()
+                    
                     next_button.click()
-                    time.sleep(4)  # On laisse le temps à l'application React de rafraîchir le DOM
+                    
+                    # On attend explicitement que le composant de pagination mette à jour la page active
+                    # Cela évite de rescraper deux fois la même page
+                    try:
+                        page.wait_for_function(
+                            f"document.querySelector('button.Paginator_currentBtn__6vdxQ').innerText !== '{current_page_text}'",
+                            timeout=10000
+                        )
+                    except Exception:
+                        # Fallback de temps si le sélecteur de classe change d'état
+                        time.sleep(3)
+                        
                     page_index += 1
                 else:
-                    print("🏁 Derniere page atteinte ou aucun bouton 'Suivant' actif.")
+                    print("🏁 Dernière page atteinte ou le bouton 'Suivant' est absent/inactif.")
                     break
                     
             browser.close()
@@ -5789,7 +5799,6 @@ def scrape_african_union_jobs():
             
     print(f"💡 Fin du traitement. Total récupéré : {len(items)} opportunités.")
     return items
-
 
 
 # 5. ROUTE FASTAPI À AJOUTER À TON APPLI
@@ -5903,6 +5912,7 @@ def run_all_scrapers():
         scrape_inphb,
         scrape_disasterready,
         scrape_opportunity_desk,
+        scrape_african_union_jobs,
     ]
 
     ops = []
