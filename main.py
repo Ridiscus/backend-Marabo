@@ -5669,124 +5669,131 @@ def trigger_international_scrape():
 
 
 
+import cloudscraper  # <-- Remplace requests pour contourner le blocage
+
 SOURCE_NAME = "Union Africaine"
 SOURCE_URL = "http://jobs.au.int/?from=email&refid=16955169902&utm_source=J2WEmail&source=2&eid=128102-202656101256-24583230602&locale=fr_FR"
 BASE_URL = "http://jobs.au.int"
 
 def scrape_african_union_jobs():
     items = []
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"
-    }
+    
+    # Création d'un scraper qui contourne les protections anti-bot (Cloudflare, etc.)
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
 
     try:
-        print(f"🔄 Connexion au portail de l'Union Africaine : {SOURCE_URL}")
-        resp = requests.get(SOURCE_URL, headers=headers, timeout=20)
+        print(f"🔄 Tentative de contournement et connexion à l'UA : {SOURCE_URL}")
+        resp = scraper.get(SOURCE_URL, timeout=30)
         
         if resp.status_code != 200:
-            print(f"⚠️ Erreur HTTP {resp.status_code} sur le site de l'UA")
+            print(f"⚠️ Le site a refusé la connexion. Code HTTP : {resp.status_code}")
             return items
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+        html_content = resp.text
+        soup = BeautifulSoup(html_content, "html.parser")
         
-        # 🎯 LA SOLUTION LOGIQUE : Trouver l'état hydraté de NextJS
-        next_script = soup.find("script", id="NEXT_DATA")
+        # --- STRATÉGIE 1 : Extraction du JSON brut via Regex (Plus fiable que soup si le HTML est altéré) ---
+        jobs_list = []
+        match = re.search(r'"jobs"\s*:\s*(\[.*?\])', html_content)
         
-        if not next_script:
-            print("❌ Le site a bloqué la requête ou changé de structure (balise NEXT_DATA introuvable).")
-            return items
+        if match:
+            try:
+                jobs_list = json.loads(match.group(1))
+                print(f"📋 {len(jobs_list)} opportunités trouvées via extraction Regex du JSON.")
+            except Exception:
+                pass
 
-        # On charge le dictionnaire Python complet depuis la chaîne JSON
-        payload = json.loads(next_script.string)
-        
-        # Exploration de l'arborescence standard de Next.js pour récupérer la liste des postes
-        # (S'adapte dynamiquement à la structure stockée dans le state)
-        page_props = payload.get("props", {}).get("pageProps", {})
-        
-        # On cherche la liste des jobs (souvent dans initialResults, jobs, ou apollo state)
-        # On fait une recherche adaptative au cas où :
-        jobs_list = page_props.get("jobs") or page_props.get("initialState", {}).get("jobs", []) or page_props.get("searchResults", {}).get("results", [])
-        
+        # --- STRATÉGIE 2 : Repli sur le DOM HTML si la structure fournie est présente ---
         if not jobs_list:
-            # Plan B si imbriqué différemment : on cherche la clé "jobs" n'importe où dans les props principales
-            for key, val in page_props.items():
-                if isinstance(val, dict) and "jobs" in val:
-                    jobs_list = val["jobs"]
-                    break
-                elif isinstance(val, list) and len(val) > 0 and ("jobTitle" in str(val[0]) or "title" in str(val[0])):
-                    jobs_list = val
-                    break
+            job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
+            if job_cards:
+                print(f"📋 {len(job_cards)} opportunités détectées via le DOM HTML.")
+                return parse_html_cards(job_cards)  # On utilise la structure HTML fournie au besoin
 
-        print(f"📋 {len(jobs_list)} opportunités extraites du JSON sous-jacent.")
+        if not jobs_list:
+            print("❌ Échec critique : Le site renvoie une page vide ou un challenge de sécurité impossible à passer sans navigateur lourd.")
+            return items
 
+        # --- TRAITEMENT DES DONNÉES EXTRAITES ---
         for job in jobs_list:
             try:
-                # Plus besoin de s'embêter avec le HTML brisé, on lit le JSON propre !
-                title = job.get("title") or job.get("jobTitle") or job.get("title_fr_FR")
-                job_id = job.get("id") or job.get("jobId") or job.get("reqId")
-                
-                if not title or not job_id:
-                    continue
-
-                # Récupération sécurisée des métadonnées
+                title = job.get("title") or job.get("jobTitle") or "Opportunité"
+                job_id = job.get("id") or job.get("jobId") or "UA"
                 country = job.get("country") or job.get("location") or "International"
                 company_name = job.get("company") or job.get("facility") or "Union Africaine"
+                date_start = job.get("postingDate") or "Ouvert"
+                date_end = job.get("endDate") or "Permanent"
                 
-                date_start = job.get("postingDate") or job.get("startDate") or "Ouvert"
-                date_end = job.get("endDate") or job.get("closingDate") or "Permanent"
-                
-                # Formatage du lien
-                # Le titre est souvent "slugifié" dans l'URL. Si non dispo, l'ID suffit généralement au routage du site.
                 opportunity_url = f"{BASE_URL}/job/id/{job_id}"
-                
                 opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-                check_and_notify_new_source(SOURCE_NAME)
+                
+                description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}. Limite : {date_end}."
 
-                description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}. Date limite : {date_end}."
                 try:
                     opportunity_item = build_opportunity(
-                        opp_id=opp_id,
-                        title=title,
-                        category="Institutions internationales",
-                        source=SOURCE_NAME,
-                        date_start=date_start,
-                        date_end=date_end,
-                        url=opportunity_url,
-                        badge_color="cyan",
-                        description=description_fallback
+                        opp_id=opp_id, title=title, category="Institutions internationales",
+                        source=SOURCE_NAME, date_start=date_start, date_end=date_end,
+                        url=opportunity_url, badge_color="cyan", description=description_fallback
                     )
                 except Exception:
                     opportunity_item = {
-                        "id": opp_id,
-                        "source": SOURCE_NAME,
-                        "title": title,
-                        "category": "Institutions internationales",
-                        "views": 0,
-                        "date_start": date_start,
-                        "date_end": date_end,
-                        "company_name": company_name,
-                        "required_skills": [],
-                        "aiSummary": description_fallback,
-                        "summary": "Consulter l'offre sur le portail de l'Union Africaine",
-                        "badgeColor": "cyan",
-                        "url": opportunity_url,
-                        "isFeatured": False,
-                        "imageUrl": ""
+                        "id": opp_id, "source": SOURCE_NAME, "title": title,
+                        "category": "Institutions internationales", "views": 0,
+                        "date_start": date_start, "date_end": date_end,
+                        "company_name": company_name, "required_skills": [],
+                        "aiSummary": description_fallback, "summary": "Consulter l'offre sur le portail de l'Union Africaine",
+                        "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
                     }
                 
                 opportunity_item["location"] = country
                 items.append(opportunity_item)
-
-            except Exception as card_err:
-                print(f"⚠️ Erreur sur un élément JSON : {card_err}")
+            except Exception as item_err:
+                print(f"⚠️ Erreur lors du traitement d'un poste : {item_err}")
                 continue
 
     except Exception as e:
-        print(f"❌ ERREUR GLOBALE lors du traitement NextJS de l'UA : {e}")
+        print(f"❌ ERREUR GLOBALE : {e}")
 
     return items
 
+def parse_html_cards(job_cards):
+    """Fonction de secours si le HTML brut contient bien les balises fournies"""
+    items = []
+    for card in job_cards:
+        try:
+            title_link = card.find("a", class_=re.compile(r"jobCardTitle"))
+            if not title_link: continue
+            title = title_link.get_text(strip=True)
+            relative_url = title_link.get("href", "")
+            opportunity_url = f"{BASE_URL}{relative_url}"
+            
+            footer_spans = card.find_all("span", class_=re.compile(r"JobsList_jobCardFooterValue"))
+            footer_values = [s.get_text(strip=True) for s in footer_spans]
+            
+            job_id = footer_values[0] if len(footer_values) > 0 else "UA"
+            country = footer_values[2] if len(footer_values) > 2 else "International"
+            date_end = footer_values[5] if len(footer_values) > 5 else "Permanent"
+            company_name = footer_values[7] if len(footer_values) > 7 else "Union Africaine"
+            
+            opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
+            
+            items.append({
+                "id": opp_id, "source": SOURCE_NAME, "title": title,
+                "category": "Institutions internationales", "views": 0,
+                "date_start": "Ouvert", "date_end": date_end, "location": country,
+                "company_name": company_name, "required_skills": [],
+                "aiSummary": f"Poste de '{title}' basé au {country}.", "summary": "Consulter l'offre",
+                "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
+            })
+        except Exception:
+            continue
+    return items
 
 
 
