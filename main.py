@@ -5668,134 +5668,150 @@ def trigger_international_scrape():
 
 
 
-import re
-import time
-import requests
 
 SOURCE_NAME = "Union Africaine"
+SOURCE_URL = "http://jobs.au.int/?from=email&refid=16955169902&utm_source=J2WEmail&source=2&eid=128102-202656101256-24583230602&locale=fr_FR"
+BASE_URL = "http://jobs.au.int"
 
 def scrape_african_union_jobs():
     items = []
-    
-    # 🎯 L'URL de l'API de requêtage du site (souvent un endpoint GraphQL ou REST standardisé)
-    # Si le site utilise SuccessFactors/Radix, l'endpoint ressemble à ceci :
-    api_url = "https://jobs.au.int/api/services/app/JobSearchResult/GetJobSearchResult" 
-    
-    # Si l'URL ci-dessus ne répond pas directement, on utilise l'alternative universelle : 
-    # simuler le chargement initial en récupérant le JSON d'état (Next.js Data ou requête réseau).
-    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Content-Type": "application/json",
-        "Referer": "http://jobs.au.int/"
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"
     }
 
-    # Données de pagination et filtres que le site envoie en tâche de fond
-    payload = {
-        "FilterSetting": {
-            "Lang": "fr_FR",
-            "PageRow": 10,
-            "PageStart": 1,
-            "SortBy": "",
-            "SortOrder": ""
-        }
+    # Traduction à la volée pour tes fonctions de conversion de date en Français
+    months_en_to_fr = {
+        "january": "janvier", "february": "février", "march": "mars", "april": "avril",
+        "may": "mai", "june": "juin", "july": "juillet", "august": "août",
+        "september": "septembre", "october": "octobre", "november": "novembre", "december": "décembre"
     }
 
     try:
-        print("🔄 Connexion directe à l'API de l'Union Africaine...")
-        # On tente de récupérer les données au format JSON directement
-        resp = requests.post("https://jobs.au.int/api/job/search", json=payload, headers=headers, timeout=20)
+        print(f"🔄 Connexion au portail de l'Union Africaine : {SOURCE_URL}")
+        resp = requests.get(SOURCE_URL, headers=headers, timeout=20)
         
-        # 💡 Si le site utilise Next.js static props, les données sont dans la page mais cachées dans une balise script.
-        # Au cas où l'API pure renvoie un 404, voici le plan B ultra-fiable qui extrait le JSON de la page HTML :
         if resp.status_code != 200:
-            html_resp = requests.get("http://jobs.au.int/?locale=fr_FR", headers=headers, timeout=20)
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(html_resp.text, "html.parser")
-            
-            # Next.js stocke TOUTES ses données de cartes dans ce script
-            next_data_script = soup.find("script", id="NEXT_DATA")
-            if next_data_script:
-                import json
-                next_data = json.loads(next_data_script.string)
-                # Extraction de la liste des jobs depuis le state de Next.js
-                jobs_list = next_data.get("props", {}).get("pageProps", {}).get("initialState", {}).get("jobs", [])
-                print(f"📋 {len(jobs_list)} opportunités trouvées via NextJS Data.")
-                return parse_json_jobs(jobs_list)
-            else:
-                print("❌ Impossible de trouver les données dynamiques.")
-                return items
+            print(f"⚠️ Erreur HTTP {resp.status_code} sur le site de l'UA")
+            return items
 
-        # Si l'API classique a répondu (Plan A) :
-        data = resp.json()
-        jobs_list = data.get("jobs", []) or data.get("result", {}).get("jobs", [])
-        print(f"📋 {len(jobs_list)} opportunités détectées via API.")
+        soup = BeautifulSoup(resp.text, "html.parser")
         
-        return parse_json_jobs(jobs_list)
+        # Extraction via l'attribut exact
+        job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
+        print(f"📋 {len(job_cards)} opportunités détectées sur la page.")
+
+        for card in job_cards:
+            try:
+                # 1. TITRE ET LIEN DE L'OFFRE
+                title_link = card.find("a", class_=re.compile(r"jobCardTitle"))
+                if not title_link:
+                    continue
+                
+                title = title_link.get_text(strip=True)
+                relative_url = title_link.get("href", "")
+                opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
+
+                # 2. EXTRACTION INTELLIGENTE DU FOOTER PAR BLOC ROW
+                footer_rows = card.find_all("div", attrs={"data-help-id": re.compile(r"jobCardFooterRow")})
+                
+                # Initialisation des variables par défaut
+                job_id = "UA"
+                country = "International"
+                date_start = "Ouvert"
+                date_end = "Permanent"
+                company_name = "Union Africaine"
+                
+                # On parcourt chaque ligne du footer pour trouver la bonne valeur associée au bon label
+                for row in footer_rows:
+                    label_tag = row.find("span", class_=re.compile(r"JobsList_jobCardFooterLabel"))
+                    value_tag = row.find("span", class_=re.compile(r"JobsList_jobCardFooterValue"))
+                    
+                    if not value_tag:
+                        continue
+                        
+                    label_text = label_tag.get_text(strip=True).lower() if label_tag else ""
+                    value_text = value_tag.get_text(strip=True)
+                    
+                    # Attribution intelligente basée sur l'existence des labels ou leur position
+                    if "posting date" in label_text:
+                        date_start = value_text
+                    elif "end date" in label_text:
+                        date_end = value_text
+                    elif "statut" in label_text:
+                        continue # On l'ignore
+                    else:
+                        # Si pas de label explicite (ex: ID, Grade, Pays, Compagnie)
+                        # On se base sur le contenu de la valeur
+                        if value_text.isdigit() and job_id == "UA":
+                            job_id = value_text
+                        elif value_text in ["Ghana", "Ethiopia", "Kenya", "Remote"]: # Ajoute d'autres pays si besoin
+                            country = value_text
+                        elif "Secrétariat" in value_text or "ZLECAf" in value_text or "Commission" in value_text:
+                            company_name = value_text
+                        elif value_text == "INTERN" or (len(value_text) <= 4 and value_text.isupper()):
+                            continue # C'est le grade (ex: INTERN, GA3, P05), on passe
+
+                # Traduction des dates pour éviter les crashs de conversion
+                for en, fr in months_en_to_fr.items():
+                    if en in date_start.lower():
+                        date_start = re.sub(en, fr, date_start, flags=re.IGNORECASE)
+                    if en in date_end.lower():
+                        date_end = re.sub(en, fr, date_end, flags=re.IGNORECASE)
+
+                # 3. ID UNIQUE
+                opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
+                check_and_notify_new_source(SOURCE_NAME)
+
+                # Description de secours pour nourrir Gemini
+                description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}. Date limite de candidature : {date_end}."
+
+                # 4. ENVOI À GEMINI / CONSTRUCTIONS
+                try:
+                    opportunity_item = build_opportunity(
+                        opp_id=opp_id,
+                        title=title,
+                        category="Institutions internationales",
+                        source=SOURCE_NAME,
+                        date_start=date_start,
+                        date_end=date_end,
+                        url=opportunity_url,
+                        badge_color="cyan",
+                        description=description_fallback
+                    )
+                except Exception as gemini_err:
+                    print(f"⚠️ Secours activé pour l'opportunité {job_id} : {gemini_err}")
+                    opportunity_item = {
+                        "id": opp_id,
+                        "source": SOURCE_NAME,
+                        "title": title,
+                        "category": "Institutions internationales",
+                        "views": 0,
+                        "date_start": date_start,
+                        "date_end": date_end,
+                        "company_name": company_name,
+                        "required_skills": [],
+                        "aiSummary": description_fallback,
+                        "summary": "Consulter l'offre sur le portail de l'Union Africaine",
+                        "badgeColor": "cyan",
+                        "url": opportunity_url,
+                        "isFeatured": False,
+                        "imageUrl": ""
+                    }
+                
+                # On force la localisation exacte trouvée
+                opportunity_item["location"] = country
+                items.append(opportunity_item)
+
+            except Exception as card_err:
+                print(f"⚠️ Erreur lors du parsing d'une carte UA : {card_err}")
+                continue
 
     except Exception as e:
         print(f"❌ ERREUR GLOBALE lors du scraping de l'Union Africaine : {e}")
-        return items
 
-def parse_json_jobs(jobs_list):
-    """Fonction helper pour traiter le JSON obtenu"""
-    items = []
-    for job in jobs_list:
-        try:
-            # Plus besoin de s'embêter avec le HTML, on lit directement le dictionnaire !
-            title = job.get("title") or job.get("jobTitle")
-            job_id = job.get("id") or job.get("jobId")
-            country = job.get("location") or job.get("country", "International")
-            company_name = job.get("company") or job.get("facility", "Union Africaine")
-            
-            # Dates
-            date_start = job.get("postingDate", "Ouvert")
-            date_end = job.get("endDate", "Permanent")
-            
-            opportunity_url = f"http://jobs.au.int/job/{job_id}"
-            opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-            description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}."
-            
-            try:
-                opportunity_item = build_opportunity(
-                    opp_id=opp_id,
-                    title=title,
-                    category="Institutions internationales",
-                    source="Union Africaine",
-                    date_start=date_start,
-                    date_end=date_end,
-                    url=opportunity_url,
-                    badge_color="cyan",
-                    description=description_fallback
-                )
-            except Exception:
-                opportunity_item = {
-                    "id": opp_id,
-                    "source": "Union Africaine",
-                    "title": title,
-                    "category": "Institutions internationales",
-                    "views": 0,
-                    "date_start": date_start,
-                    "date_end": date_end,
-                    "company_name": company_name,
-                    "required_skills": [],
-                    "aiSummary": description_fallback,
-                    "summary": "Consulter l'offre sur le portail de l'Union Africaine",
-                    "badgeColor": "cyan",
-                    "url": opportunity_url,
-                    "isFeatured": False,
-                    "imageUrl": ""
-                }
-            
-            opportunity_item["location"] = country
-            items.append(opportunity_item)
-            
-        except Exception as item_err:
-            print(f"⚠️ Erreur article JSON : {item_err}")
-            continue
-            
     return items
+
 
 # 5. ROUTE FASTAPI À AJOUTER À TON APPLI
 @app.get("/scrape/ua-international")
