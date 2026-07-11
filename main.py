@@ -5680,13 +5680,6 @@ def scrape_african_union_jobs():
         "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"
     }
 
-    # Traduction à la volée pour tes fonctions de conversion de date en Français
-    months_en_to_fr = {
-        "january": "janvier", "february": "février", "march": "mars", "april": "avril",
-        "may": "mai", "june": "juin", "july": "juillet", "august": "août",
-        "september": "septembre", "october": "octobre", "november": "novembre", "december": "décembre"
-    }
-
     try:
         print(f"🔄 Connexion au portail de l'Union Africaine : {SOURCE_URL}")
         resp = requests.get(SOURCE_URL, headers=headers, timeout=20)
@@ -5697,76 +5690,60 @@ def scrape_african_union_jobs():
 
         soup = BeautifulSoup(resp.text, "html.parser")
         
-        # Extraction via l'attribut exact
-        job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
-        print(f"📋 {len(job_cards)} opportunités détectées sur la page.")
+        # 🎯 LA SOLUTION LOGIQUE : Trouver l'état hydraté de NextJS
+        next_script = soup.find("script", id="NEXT_DATA")
+        
+        if not next_script:
+            print("❌ Le site a bloqué la requête ou changé de structure (balise NEXT_DATA introuvable).")
+            return items
 
-        for card in job_cards:
+        # On charge le dictionnaire Python complet depuis la chaîne JSON
+        payload = json.loads(next_script.string)
+        
+        # Exploration de l'arborescence standard de Next.js pour récupérer la liste des postes
+        # (S'adapte dynamiquement à la structure stockée dans le state)
+        page_props = payload.get("props", {}).get("pageProps", {})
+        
+        # On cherche la liste des jobs (souvent dans initialResults, jobs, ou apollo state)
+        # On fait une recherche adaptative au cas où :
+        jobs_list = page_props.get("jobs") or page_props.get("initialState", {}).get("jobs", []) or page_props.get("searchResults", {}).get("results", [])
+        
+        if not jobs_list:
+            # Plan B si imbriqué différemment : on cherche la clé "jobs" n'importe où dans les props principales
+            for key, val in page_props.items():
+                if isinstance(val, dict) and "jobs" in val:
+                    jobs_list = val["jobs"]
+                    break
+                elif isinstance(val, list) and len(val) > 0 and ("jobTitle" in str(val[0]) or "title" in str(val[0])):
+                    jobs_list = val
+                    break
+
+        print(f"📋 {len(jobs_list)} opportunités extraites du JSON sous-jacent.")
+
+        for job in jobs_list:
             try:
-                # 1. TITRE ET LIEN DE L'OFFRE
-                title_link = card.find("a", class_=re.compile(r"jobCardTitle"))
-                if not title_link:
+                # Plus besoin de s'embêter avec le HTML brisé, on lit le JSON propre !
+                title = job.get("title") or job.get("jobTitle") or job.get("title_fr_FR")
+                job_id = job.get("id") or job.get("jobId") or job.get("reqId")
+                
+                if not title or not job_id:
                     continue
-                
-                title = title_link.get_text(strip=True)
-                relative_url = title_link.get("href", "")
-                opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
 
-                # 2. EXTRACTION INTELLIGENTE DU FOOTER PAR BLOC ROW
-                footer_rows = card.find_all("div", attrs={"data-help-id": re.compile(r"jobCardFooterRow")})
+                # Récupération sécurisée des métadonnées
+                country = job.get("country") or job.get("location") or "International"
+                company_name = job.get("company") or job.get("facility") or "Union Africaine"
                 
-                # Initialisation des variables par défaut
-                job_id = "UA"
-                country = "International"
-                date_start = "Ouvert"
-                date_end = "Permanent"
-                company_name = "Union Africaine"
+                date_start = job.get("postingDate") or job.get("startDate") or "Ouvert"
+                date_end = job.get("endDate") or job.get("closingDate") or "Permanent"
                 
-                # On parcourt chaque ligne du footer pour trouver la bonne valeur associée au bon label
-                for row in footer_rows:
-                    label_tag = row.find("span", class_=re.compile(r"JobsList_jobCardFooterLabel"))
-                    value_tag = row.find("span", class_=re.compile(r"JobsList_jobCardFooterValue"))
-                    
-                    if not value_tag:
-                        continue
-                        
-                    label_text = label_tag.get_text(strip=True).lower() if label_tag else ""
-                    value_text = value_tag.get_text(strip=True)
-                    
-                    # Attribution intelligente basée sur l'existence des labels ou leur position
-                    if "posting date" in label_text:
-                        date_start = value_text
-                    elif "end date" in label_text:
-                        date_end = value_text
-                    elif "statut" in label_text:
-                        continue # On l'ignore
-                    else:
-                        # Si pas de label explicite (ex: ID, Grade, Pays, Compagnie)
-                        # On se base sur le contenu de la valeur
-                        if value_text.isdigit() and job_id == "UA":
-                            job_id = value_text
-                        elif value_text in ["Ghana", "Ethiopia", "Kenya", "Remote"]: # Ajoute d'autres pays si besoin
-                            country = value_text
-                        elif "Secrétariat" in value_text or "ZLECAf" in value_text or "Commission" in value_text:
-                            company_name = value_text
-                        elif value_text == "INTERN" or (len(value_text) <= 4 and value_text.isupper()):
-                            continue # C'est le grade (ex: INTERN, GA3, P05), on passe
-
-                # Traduction des dates pour éviter les crashs de conversion
-                for en, fr in months_en_to_fr.items():
-                    if en in date_start.lower():
-                        date_start = re.sub(en, fr, date_start, flags=re.IGNORECASE)
-                    if en in date_end.lower():
-                        date_end = re.sub(en, fr, date_end, flags=re.IGNORECASE)
-
-                # 3. ID UNIQUE
+                # Formatage du lien
+                # Le titre est souvent "slugifié" dans l'URL. Si non dispo, l'ID suffit généralement au routage du site.
+                opportunity_url = f"{BASE_URL}/job/id/{job_id}"
+                
                 opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
                 check_and_notify_new_source(SOURCE_NAME)
 
-                # Description de secours pour nourrir Gemini
-                description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}. Date limite de candidature : {date_end}."
-
-                # 4. ENVOI À GEMINI / CONSTRUCTIONS
+                description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}. Date limite : {date_end}."
                 try:
                     opportunity_item = build_opportunity(
                         opp_id=opp_id,
@@ -5779,8 +5756,7 @@ def scrape_african_union_jobs():
                         badge_color="cyan",
                         description=description_fallback
                     )
-                except Exception as gemini_err:
-                    print(f"⚠️ Secours activé pour l'opportunité {job_id} : {gemini_err}")
+                except Exception:
                     opportunity_item = {
                         "id": opp_id,
                         "source": SOURCE_NAME,
@@ -5799,18 +5775,20 @@ def scrape_african_union_jobs():
                         "imageUrl": ""
                     }
                 
-                # On force la localisation exacte trouvée
                 opportunity_item["location"] = country
                 items.append(opportunity_item)
 
             except Exception as card_err:
-                print(f"⚠️ Erreur lors du parsing d'une carte UA : {card_err}")
+                print(f"⚠️ Erreur sur un élément JSON : {card_err}")
                 continue
 
     except Exception as e:
-        print(f"❌ ERREUR GLOBALE lors du scraping de l'Union Africaine : {e}")
+        print(f"❌ ERREUR GLOBALE lors du traitement NextJS de l'UA : {e}")
 
     return items
+
+
+
 
 
 # 5. ROUTE FASTAPI À AJOUTER À TON APPLI
