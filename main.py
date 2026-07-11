@@ -5669,125 +5669,114 @@ def trigger_international_scrape():
 
 
 
-import json
+import time
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 import re
-import cloudscraper
 
 SOURCE_NAME = "Union Africaine"
-# 🎯 L'API universelle de secours de SAP SuccessFactors (décentralisée et publique)
-API_URL = "https://api2.successfactors.eu/rest/recruiting/career/v1/jobs"
+SOURCE_URL = "https://jobs.au.int/go/Tous-les-Emplois/9831857/?pageNumber=0"
 BASE_URL = "https://jobs.au.int"
 
 def scrape_african_union_jobs():
     items = []
     
-    scraper = cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'desktop': True
-        }
-    )
-
-    # 🛠 Query parameters officiels de l'API publique SAP (sans payload POST lourd)
-    params = {
-        "companyId": "africanuni",
-        "locale": "en_US",  # Souvent la seule langue acceptée en API directe brute
-        "pageNumber": 1,
-        "pageSize": 50
-    }
-
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-        "Origin": "https://jobs.au.int",
-        "Referer": "https://jobs.au.int/"
-    }
-
-    try:
-        print(f"🔄 Interrogation directe du flux public SAP SuccessFactors...")
-        
-        # On utilise un GET avec des paramètres d'URL (params=), ce que le serveur accepte sans token CSRF
-        resp = scraper.get(API_URL, params=params, headers=headers, timeout=20)
-        
-        # Si en_US ne donne rien, on teste rapidement fr_FR
-        if resp.status_code != 200 or "searchResults" not in resp.text:
-            params["locale"] = "fr_FR"
-            resp = scraper.get(API_URL, params=params, headers=headers, timeout=20)
-
-        if resp.status_code != 200:
-            print(f"❌ Échec de l'API SAP décentralisée. Code HTTP : {resp.status_code}")
-            return items
-
+    print(f"🚀 Initialisation du navigateur Playwright pour l'Union Africaine...")
+    
+    with sync_playwright() as p:
         try:
-            data = resp.json()
-        except Exception:
-            print("❌ Erreur de décodage JSON sur la réponse de l'API.")
-            return items
-
-        # Extraction selon la structure standard retournée par l'API widget de SAP
-        jobs_list = []
-        if isinstance(data, dict):
-            if "searchResults" in data:
-                jobs_list = data["searchResults"].get("results", [])
-            elif "jobs" in data:
-                jobs_list = data.get("jobs", [])
-            elif "content" in data:
-                jobs_list = data.get("content", [])
-        elif isinstance(data, list):
-            jobs_list = data
-
-        print(f"📋 {len(jobs_list)} opportunités récupérées depuis le flux public SAP.")
-
-        for job in jobs_list:
-            try:
-                title = job.get("title") or job.get("jobTitle")
-                job_id = job.get("id") or job.get("jobReqId") or job.get("reqId")
+            # Lancement d'un vrai navigateur Chromium en tâche de fond
+            browser = p.chromium.launch(headless=True)
+            
+            # Configuration d'un contexte utilisateur réaliste
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                locale="fr-FR"
+            )
+            
+            page = context.new_page()
+            
+            print(f"🔄 Navigation vers le portail : {SOURCE_URL}")
+            # On attend que le réseau soit totalement inactif (fin du chargement de l'API React)
+            page.goto(SOURCE_URL, wait_until="networkidle", timeout=45000)
+            
+            # Petit temps de pause pour garantir l'injection des composants
+            time.sleep(3)
+            
+            # Extraction du contenu HTML généré par le JavaScript
+            html_content = page.content()
+            
+            # Fermeture propre du navigateur
+            browser.close()
+            
+            # --- PARSING DU CODE SOURCE RENDU ---
+            soup = BeautifulSoup(html_content, "html.parser")
+            
+            # Recherche des composants <li> que tu as identifiés
+            job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
+            
+            if not job_cards:
+                print("❌ Toujours aucun élément détecté, même avec Playwright. Le sélecteur HTML a peut-être changé.")
+                return items
                 
-                if not title or not job_id:
-                    continue
-
-                country = job.get("location") or job.get("country") or "International"
-                if isinstance(country, list) and len(country) > 0:
-                    country = country[0]
-                elif isinstance(country, dict):
-                    country = country.get("country") or country.get("name") or "International"
-                
-                country_clean = str(country).split(",")[-1].strip()
-                date_start = job.get("postingDate") or "Ouvert"
-                date_end = job.get("endDate") or job.get("closingDate") or "Permanent"
-                
-                opportunity_url = f"{BASE_URL}/job/id/{job_id}/"
-                opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-
-                description_fallback = f"Poste de '{title}' basé à {country_clean}. Organisation : Union Africaine."
-
+            print(f"📋 {len(job_cards)} opportunités détectées avec succès grâce au rendu JavaScript !")
+            
+            for card in job_cards:
                 try:
-                    opportunity_item = build_opportunity(
-                        opp_id=opp_id, title=title, category="Institutions internationales",
-                        source=SOURCE_NAME, date_start=date_start, date_end=date_end,
-                        url=opportunity_url, badge_color="cyan", description=description_fallback
-                    )
-                except Exception:
-                    opportunity_item = {
-                        "id": opp_id, "source": SOURCE_NAME, "title": title,
-                        "category": "Institutions internationales", "views": 0,
-                        "date_start": date_start, "date_end": date_end,
-                        "company_name": "Union Africaine", "required_skills": [],
-                        "aiSummary": description_fallback, "summary": "Consulter l'offre sur le portail de l'Union Africaine",
-                        "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
-                    }
-                
-                opportunity_item["location"] = country_clean
-                items.append(opportunity_item)
-
-            except Exception as item_err:
-                continue
-
-    except Exception as e:
-        print(f"❌ ERREUR GLOBALE : {e}")
-
+                    # Recherche du lien de titre
+                    title_link = card.find("a", attrs={"data-testid": re.compile(r"jobCardTitle")}) or card.find("a", class_=re.compile(r"jobCardTitle"))
+                    if not title_link:
+                        continue
+                        
+                    title = title_link.get_text(strip=True)
+                    relative_url = title_link.get("href", "")
+                    opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
+                    
+                    # Récupération de toutes les valeurs du footer (ID, Ville, Date, etc.)
+                    footer_spans = card.find_all("span", attrs={"data-help-id": "jobCardFooterValue"})
+                    if not footer_spans:
+                        footer_spans = card.find_all("span", class_=re.compile(r"jobCardFooterValue"))
+                        
+                    values = [s.get_text(strip=True) for s in footer_spans]
+                    
+                    # Sécurisation des indices basé sur ton exemple HTML exact
+                    job_id = values[0] if len(values) > 0 else "N/A"
+                    country = values[2] if len(values) > 2 else "International"
+                    date_end = values[4] if len(values) > 4 else "Permanent"
+                    company_name = values[6] if len(values) > 6 else "Union Africaine"
+                    
+                    opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
+                    description_fallback = f"Poste de '{title}' basé au {country}. Organisation : {company_name}."
+                    try:
+                        opportunity_item = build_opportunity(
+                            opp_id=opp_id, title=title, category="Institutions internationales",
+                            source=SOURCE_NAME, date_start="Ouvert", date_end=date_end,
+                            url=opportunity_url, badge_color="cyan", description=description_fallback
+                        )
+                    except Exception:
+                        opportunity_item = {
+                            "id": opp_id, "source": SOURCE_NAME, "title": title,
+                            "category": "Institutions internationales", "views": 0,
+                            "date_start": "Ouvert", "date_end": date_end,
+                            "company_name": company_name, "required_skills": [],
+                            "aiSummary": description_fallback, "summary": "Consulter l'offre sur le portail de l'Union Africaine",
+                            "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
+                        }
+                    
+                    opportunity_item["location"] = country
+                    items.append(opportunity_item)
+                    
+                except Exception as item_err:
+                    continue
+                    
+        except Exception as e:
+            print(f"❌ ERREUR LORS DE L'EXÉCUTION DE PLAYWRIGHT : {e}")
+            
     return items
+
+
+
+
 
 
 # 5. ROUTE FASTAPI À AJOUTER À TON APPLI
