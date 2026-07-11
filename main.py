@@ -5669,6 +5669,151 @@ def trigger_international_scrape():
 
 
 
+# Configuration des URLs et constantes
+BASE_URL = "http://jobs.au.int"
+SOURCE_URL = f"{BASE_URL}/?from=email&refid=16955169902&utm_source=J2WEmail&source=2&eid=128102-202656101256-24583230602&locale=fr_FR"
+SOURCE_NAME = "Union Africaine"
+
+def scrape_african_union_jobs():
+    items = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"
+    }
+
+    try:
+        print(f"🔄 Connexion au portail de l'Union Africaine : {SOURCE_URL}")
+        resp = requests.get(SOURCE_URL, headers=headers, timeout=20)
+        
+        if resp.status_code != 200:
+            print(f"⚠️ Erreur HTTP {resp.status_code} sur le site de l'UA")
+            return items
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        
+        # Ciblage de toutes les cartes d'opportunités
+        job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
+        print(f"📋 {len(job_cards)} opportunités détectées sur la page actuelle.")
+
+        for card in job_cards:
+            try:
+                # 1. TITRE ET LIEN DE L'OFFRE
+                title_link = card.find("a", class_="jobCardTitle")
+                if not title_link:
+                    continue
+                
+                title = title_link.get_text(strip=True)
+                relative_url = title_link.get("href", "")
+                opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
+
+                # 2. EXTRACTION DES INFOS DU FOOTER (ID, Pays, Dates, Entreprise)
+                # On récupère tous les spans contenant les valeurs de la carte
+                footer_values = [span.get_text(strip=True) for span in card.find_all("span", class_="JobsList_jobCardFooterValue__Lc--j")]
+                
+                # Selon ton HTML, l'ordre type d'apparition des valeurs est :
+                # [ID_Poste, Code_Grade, Pays, Date_Publication_Fr, Date_Clôture, Heure, Entité/Organisation]
+                # Exemple : ['3009', 'GA3', 'Ghana', '17/06/2026', '07/17/2026', '11:59 PM GMT', 'Secrétariat de la ZLECAf']
+                
+                # Extraction sécurisée par indexation relative
+                job_id = footer_values[0] if len(footer_values) > 0 else "UA_UNKNOWN"
+                country = footer_values[2] if len(footer_values) > 2 else "International"
+                
+                # Dates (On cherche des dates au format standard ou textuel)
+                date_start = "Ouvert"
+                date_end = "Permanent"
+                
+                if len(footer_values) > 4:
+                    # En général l'index 3 ou 4 contient la date de fin (ex: '07/17/2026' ou 'August 07, 2026')
+                    # On privilégie la date de fin brute pour traitement
+                    date_end = footer_values[4]
+                
+                # L'entité (ex: Secrétariat de la ZLECAf) se trouve souvent vers la fin
+                company_name = footer_values[6] if len(footer_values) > 6 else "Union Africaine"
+
+                # 3. ID UNIQUE STRUCTURÉ (Remplacement de l'ID natif si besoin d'unification)
+                # Utilise ton générateur existant : generate_numeric_id
+                opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
+                
+                # Notification de nouvelle source si nécessaire
+                check_and_notify_new_source(SOURCE_NAME)
+
+                # 4. CONSTRUCTION AVEC SÉCURITÉ GÉMINI / FALLBACK
+                description_fallback = f"Poste de '{title}' basé au {country}, publié par l'entité {company_name}."
+                try:
+                    # Appel de build_opportunity (qui utilise en interne la fonction Gemini mise à jour)
+                    opportunity_item = build_opportunity(
+                        opp_id=opp_id,
+                        title=title,
+                        category="Institutions internationales",
+                        source=SOURCE_NAME,
+                        date_start=date_start,
+                        date_end=date_end,
+                        url=opportunity_url,
+                        badge_color="cyan",  # Changement de couleur pour différencier d'Opportunity Desk
+                        description=description_fallback
+                    )
+                except Exception as gemini_or_parse_err:
+                    print(f"⚠️ Secours activé pour l'opportunité de l'UA {job_id} : {gemini_or_parse_err}")
+                    opportunity_item = {
+                        "id": opp_id,
+                        "source": SOURCE_NAME,
+                        "title": title,
+                        "category": "Institutions internationales",
+                        "views": 0,
+                        "date_start": date_start,
+                        "date_end": date_end,
+                        "company_name": company_name,
+                        "required_skills": [],
+                        "aiSummary": description_fallback,
+                        "summary": "Consulter l'offre sur le portail de l'Union Africaine",
+                        "badgeColor": "cyan",
+                        "url": opportunity_url,
+                        "isFeatured": False,
+                        "imageUrl": ""
+                    }
+                
+                # Injection intelligente de la localisation récupérée du site
+                # On force 'International' si vide, sinon le Pays extrait (ex: Ghana, Ethiopia)
+                opportunity_item["location"] = country if country else "International"
+                
+                items.append(opportunity_item)
+
+            except Exception as card_err:
+                print(f"⚠️ Erreur lors du parsing d'une carte UA : {card_err}")
+                continue
+
+    except Exception as e:
+        print(f"❌ ERREUR GLOBALE lors du scraping de l'Union Africaine : {e}")
+
+    return items
+
+
+# 5. ROUTE FASTAPI À AJOUTER À TON APPLI
+@app.get("/scrape/ua-international")
+def trigger_ua_international_scrape():
+    try:
+        print("🚀 Lancement du scraping Union Africaine (Institutions internationales)...")
+        data = scrape_african_union_jobs()
+        
+        count = 0
+        for item in data:
+            doc_ref = db.collection("opportunities").document(item["id"])
+            
+            if not doc_ref.get().exists:
+                doc_ref.set(item)
+                count += 1
+                
+        return {"status": "success", "added": count, "total_scraped": len(data), "data": data}
+        
+    except Exception as e:
+        print(f"❌ Erreur lors du traitement des opportunités UA : {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+
 
 
 # 👈 AJOUTE CETTE LIGNE : Elle va chercher la clé secrète dans Render
@@ -5753,6 +5898,7 @@ def run_all_scrapers():
         scrape_sociumjob,
         scrape_inphb,
         scrape_disasterready,
+        scrape_opportunity_desk,
     ]
 
     ops = []
