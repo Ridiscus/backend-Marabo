@@ -5674,7 +5674,7 @@ from bs4 import BeautifulSoup
 
 SOURCE_NAME = "Union Africaine"
 # 🎯 Utilisation de la bonne URL stable
-SOURCE_URL = "https://jobs.au.int/go/Tous-les-Emplois/9831857/"
+SOURCE_URL = "https://jobs.au.int/go/Tous-les-Emplois/9831857/?pageNumber=0"
 BASE_URL = "https://jobs.au.int"
 
 def scrape_african_union_jobs():
