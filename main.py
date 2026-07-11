@@ -5672,10 +5672,10 @@ def trigger_international_scrape():
 import json
 import re
 import cloudscraper
-from bs4 import BeautifulSoup
 
 SOURCE_NAME = "Union Africaine"
-SOURCE_URL = "https://jobs.au.int/go/Tous-les-Emplois/9831857/"
+# 🎯 L'API universelle de secours de SAP SuccessFactors (décentralisée et publique)
+API_URL = "https://api2.successfactors.eu/rest/recruiting/career/v1/jobs"
 BASE_URL = "https://jobs.au.int"
 
 def scrape_african_union_jobs():
@@ -5689,114 +5689,105 @@ def scrape_african_union_jobs():
         }
     )
 
+    # 🛠 Query parameters officiels de l'API publique SAP (sans payload POST lourd)
+    params = {
+        "companyId": "africanuni",
+        "locale": "en_US",  # Souvent la seule langue acceptée en API directe brute
+        "pageNumber": 1,
+        "pageSize": 50
+    }
+
     headers = {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept": "application/json, text/plain, */*",
         "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+        "Origin": "https://jobs.au.int",
         "Referer": "https://jobs.au.int/"
     }
 
     try:
-        print(f"🔄 Connexion au portail et lecture du Store HTML...")
-        resp = scraper.get(SOURCE_URL, headers=headers, timeout=20)
+        print(f"🔄 Interrogation directe du flux public SAP SuccessFactors...")
         
+        # On utilise un GET avec des paramètres d'URL (params=), ce que le serveur accepte sans token CSRF
+        resp = scraper.get(API_URL, params=params, headers=headers, timeout=20)
+        
+        # Si en_US ne donne rien, on teste rapidement fr_FR
+        if resp.status_code != 200 or "searchResults" not in resp.text:
+            params["locale"] = "fr_FR"
+            resp = scraper.get(API_URL, params=params, headers=headers, timeout=20)
+
         if resp.status_code != 200:
-            print(f"❌ Impossible de charger la page (Code {resp.status_code})")
+            print(f"❌ Échec de l'API SAP décentralisée. Code HTTP : {resp.status_code}")
             return items
 
-        html_content = resp.text
+        try:
+            data = resp.json()
+        except Exception:
+            print("❌ Erreur de décodage JSON sur la réponse de l'API.")
+            return items
 
-        # --- RECHERCHE DU STORE INITIAL DU COMPOSANT (JSON INJECTÉ) ---
+        # Extraction selon la structure standard retournée par l'API widget de SAP
         jobs_list = []
-        
-        # Methode 1 : Extraction via l'état initial des composants d'offres
-        state_match = re.search(r'window\.INITIAL_STATE\s*=\s*(\{.*?\});', html_content)
-        if state_match:
+        if isinstance(data, dict):
+            if "searchResults" in data:
+                jobs_list = data["searchResults"].get("results", [])
+            elif "jobs" in data:
+                jobs_list = data.get("jobs", [])
+            elif "content" in data:
+                jobs_list = data.get("content", [])
+        elif isinstance(data, list):
+            jobs_list = data
+
+        print(f"📋 {len(jobs_list)} opportunités récupérées depuis le flux public SAP.")
+
+        for job in jobs_list:
             try:
-                state_json = json.loads(state_match.group(1))
-                jobs_list = state_json.get("jobs", {}).get("list", []) or state_json.get("searchResults", [])
-            except Exception:
-                pass
-
-        # Methode 2 : Si la méthode 1 échoue, on parse directement le DOM HTML car les cartes y sont pré-rendues !
-        if not jobs_list:
-            soup = BeautifulSoup(html_content, "html.parser")
-            job_cards = soup.find_all("li", attrs={"data-testid": "jobCard"})
-            
-            if job_cards:
-                print(f"📋 {len(job_cards)} opportunités détectées dans le DOM HTML pré-rendu.")
-                for card in job_cards:
-                    try:
-                        title_link = card.find("a", class_=re.compile(r"jobCardTitle"))
-                        if not title_link: 
-                            continue
-                        
-                        title = title_link.get_text(strip=True)
-                        relative_url = title_link.get("href", "")
-                        opportunity_url = f"{BASE_URL}{relative_url}" if relative_url.startswith("/") else relative_url
-                        
-                        # Extraction des spans du footer
-                        footer_spans = card.find_all("span", class_=re.compile(r"jobCardFooterValue"))
-                        # Si la classe exacte diffère (comme dans ton log où il y avait des caractères générés '__Lc--j')
-                        if not footer_spans:
-                            footer_spans = card.find_all("span", attrs={"data-help-id": re.compile(r"jobCardFooterValue")})
-                        if not footer_spans:
-                            footer_spans = card.select("[class*='jobCardFooterValue']")
-                        
-                        values = [s.get_text(strip=True) for s in footer_spans]
-                        
-                        # Fallback si les valeurs ne matchent pas l'ordre attendu
-                        job_id = values[0] if len(values) > 0 else str(len(title))
-                        country = values[2] if len(values) > 2 else "International"
-                        date_end = values[4] if len(values) > 4 else "Permanent"
-                        company_name = values[6] if len(values) > 6 else "Union Africaine"
-                        
-                        opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
-                        description_fallback = f"Poste de '{title}' basé au {country}. Recruteur : {company_name}."
-                        try:
-                            opportunity_item = build_opportunity(
-                                opp_id=opp_id, title=title, category="Institutions internationales",
-                                source=SOURCE_NAME, date_start="Ouvert", date_end=date_end,
-                                url=opportunity_url, badge_color="cyan", description=description_fallback
-                            )
-                        except Exception:
-                            opportunity_item = {
-                                "id": opp_id, "source": SOURCE_NAME, "title": title,
-                                "category": "Institutions internationales", "views": 0,
-                                "date_start": "Ouvert", "date_end": date_end,
-                                "company_name": company_name, "required_skills": [],
-                                "aiSummary": description_fallback, "summary": "Consulter l'offre sur le portail",
-                                "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
-                            }
-                        opportunity_item["location"] = country
-                        items.append(opportunity_item)
-                    except Exception as card_err:
-                        continue
+                title = job.get("title") or job.get("jobTitle")
+                job_id = job.get("id") or job.get("jobReqId") or job.get("reqId")
                 
-                if items:
-                    return items
+                if not title or not job_id:
+                    continue
 
-        # --- CONSTRECTIONS VIA LE PLAN TRADITIONNEL DES SCRIPTS SI PRESENT ---
-        if not items:
-            # Recherche texte brut dans le HTML au cas où le JSON est brut sans variable
-            jobs_match = re.findall(r'{"jobId":"([^"]+)","jobTitle":"([^"]+)".*?"location":"([^"]+)"', html_content)
-            for j_id, j_title, j_loc in jobs_match:
-                opp_id = str(generate_numeric_id(f"UA_{j_id}", "2026"))
-                items.append({
-                    "id": opp_id, "source": SOURCE_NAME, "title": j_title,
-                    "category": "Institutions internationales", "views": 0,
-                    "date_start": "Ouvert", "date_end": "Permanent", "location": j_loc,
-                    "company_name": "Union Africaine", "required_skills": [],
-                    "aiSummary": f"Poste de {j_title}", "summary": "Consulter l'offre",
-                    "badgeColor": "cyan", "url": f"{BASE_URL}/job/id/{j_id}/", "isFeatured": False, "imageUrl": ""
-                })
+                country = job.get("location") or job.get("country") or "International"
+                if isinstance(country, list) and len(country) > 0:
+                    country = country[0]
+                elif isinstance(country, dict):
+                    country = country.get("country") or country.get("name") or "International"
+                
+                country_clean = str(country).split(",")[-1].strip()
+                date_start = job.get("postingDate") or "Ouvert"
+                date_end = job.get("endDate") or job.get("closingDate") or "Permanent"
+                
+                opportunity_url = f"{BASE_URL}/job/id/{job_id}/"
+                opp_id = str(generate_numeric_id(f"UA_{job_id}", "2026"))
 
-        print(f"📋 {len(items)} opportunités récupérées via extraction directe HTML/DOM.")
+                description_fallback = f"Poste de '{title}' basé à {country_clean}. Organisation : Union Africaine."
+
+                try:
+                    opportunity_item = build_opportunity(
+                        opp_id=opp_id, title=title, category="Institutions internationales",
+                        source=SOURCE_NAME, date_start=date_start, date_end=date_end,
+                        url=opportunity_url, badge_color="cyan", description=description_fallback
+                    )
+                except Exception:
+                    opportunity_item = {
+                        "id": opp_id, "source": SOURCE_NAME, "title": title,
+                        "category": "Institutions internationales", "views": 0,
+                        "date_start": date_start, "date_end": date_end,
+                        "company_name": "Union Africaine", "required_skills": [],
+                        "aiSummary": description_fallback, "summary": "Consulter l'offre sur le portail de l'Union Africaine",
+                        "badgeColor": "cyan", "url": opportunity_url, "isFeatured": False, "imageUrl": ""
+                    }
+                
+                opportunity_item["location"] = country_clean
+                items.append(opportunity_item)
+
+            except Exception as item_err:
+                continue
 
     except Exception as e:
         print(f"❌ ERREUR GLOBALE : {e}")
 
     return items
-
 
 
 # 5. ROUTE FASTAPI À AJOUTER À TON APPLI
