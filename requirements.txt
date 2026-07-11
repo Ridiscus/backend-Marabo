@@ -17,3 +17,4 @@ apify-client
 google-generativeai
 python-multipart
 apscheduler
+cloudscraper==1.2.71
