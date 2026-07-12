@@ -33,7 +33,7 @@ from apify_client import ApifyClient
 from datetime import datetime
 from facebook_scraper import get_posts
 from apify_client import ApifyClient
-import google.generativeai as genai
+from google import genai
 from firebase_admin import storage # <--- Ajoute storage
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, BackgroundTasks # N'oublie pas d'importer BackgroundTasks
@@ -80,13 +80,15 @@ load_dotenv()
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-#GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
-#GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+# 🤖 INITIALISATION DU NOUVEAU CLIENT GEMINI
+# Plus besoin d'URL compliquée avec "v1beta", le SDK s'occupe de tout proprement.
+client = genai.Client(api_key=GEMINI_API_KEY)
+
 
 
 # Modèle mis à jour vers 2.0-flash (celui qui est dispo sur ta clé)
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+#GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
 EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT"))
@@ -145,79 +147,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Fonction pour générer une image aléatoire
 def random_image():
     return f"https://picsum.photos/600/300?random={random.randint(1, 10000)}"
-
-
-# # Images locales par source
-# local_images = {
-#     "INFAS": [
-#         "https://yop.l-frii.com/wp-content/uploads/2025/06/Cote-dIvoire-CONCOURS-DENTREE-A-LINFAS-SESSION-2025-Nouveau-Report-de-la-date-limite-des-inscriptions.jpeg",
-#         "https://kamerpower.com/wp-content/uploads/2019/12/Procedure-Inscription-Concours-INFAS-Cote-divoire.jpg",
-#         "https://yop.l-frii.com/wp-content/uploads/2025/06/Cote-dIvoire-CONCOURS-DENTREE-A-LINFAS-SESSION-2025-Nouveau-Report-de-la-date-limite-des-inscriptions.jpeg"
-#     ],
-#     "GUCACI ENA": [
-#         "https://fonctionpublique.gouv.tg/wp-content/uploads/2022/07/ENA-togo.jpg",
-#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSEoXTDhtsRroemejeY6FqFS9aMTcHh-iytJQ&s",
-#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ0ngHGHxFjqeqsq-_Q5ntWjbTMC-hk1htF6g&s"
-#     ],
-#     "EAUX ET FORËT": [
-#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSO26enIR5fvSeo1p08r9KrS3r_AeW4X0NGUw&s",
-#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQsyBqrF3io_uq63rLm3JiSlBudCh4kcGUJUg&s",
-#         "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ_ExN2f0t-gxep_LBsjoP4bbrAstbQkTjiyQ&s"
-#     ],
-#     # ✅ AJOUT DE SOCIUMJOB ICI
-#     "SociumJob": [
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium1.png?alt=media&token=ebc31bce-055d-400a-a553-f5433df24085",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium2.png?alt=media&token=e96da610-1d34-43ca-8eed-93952707eba5",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fsocium3.png?alt=media&token=c6abf67e-911c-47c8-a801-1affb8641025"
-#     ],
-#     # ✅ AJOUT DE SOCIUMJOB ICI
-#     "NovoJob": [
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob1.png?alt=media&token=219a2388-447e-4c11-bbad-f058b7369396",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob2.png?alt=media&token=a2d429ad-88ff-405b-abb3-e64a4cafcf53",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fnovojob3.png?alt=media&token=b78f4c63-19b8-48c2-b1da-e79e22320920"
-#     ],
-#     # ✅ AJOUT DE PROJOBIVOIR ICI educarriere
-#     "ProJob Ivoire": [
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire1.png?alt=media&token=d5ab3658-fdf9-4d5c-9055-787f06f8006f",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire2.png?alt=media&token=934c3f12-f508-463f-bd5c-db0eb29743f0",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fprojobivoire3.png?alt=media&token=7c96a39f-a3f6-465b-8629-ebc4b359c141"
-#     ],
-#     "Option Carrière": [ 
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri1.png?alt=media&token=eadc3a53-afe0-46ce-a36c-7d3f1456662b",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri2.png?alt=media&token=51182f7d-6110-4f08-bc99-32d69eea5ec6",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Foption_carri3.png?alt=media&token=66b00166-fb15-41c9-8b1d-18e6ef72aabf"
-#     ],
-#     "Educarriere": [ 
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere1.png?alt=media&token=e09243d2-1550-4e5c-af87-e2cf10c99a9d",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere2.png?alt=media&token=b5fd06f5-0df8-4eb4-9a55-aed4f5c404c0",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere3.png?alt=media&token=9b39073d-6662-460d-82a6-17cc8e92fc63"
-#     ], 
-#     "ENS (Ablanian)": [ 
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens1.png?alt=media&token=6f4c18d5-cfb0-4924-91d1-80f16ecb20e2",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens2.png?alt=media&token=b512e5e5-867e-44ea-aa94-ec2841f7f35d",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fens3.png?alt=media&token=ac2561ee-7fda-4af4-9bc2-84af540541d1"
-#     ],
-#     "DAAD": [ 
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads1.png?alt=media&token=1265c4b8-5ad3-4d1c-a3cb-fa6a85c90ab5",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads2.png?alt=media&token=26b5de71-701c-4528-b38a-5f998d87fea0",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fdaads3.png?alt=media&token=0a4fde8b-83a2-4906-aa9d-6cbf5fcc59d4"
-#     ],
-#     "Educarriere Formations": [ 
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere1.png?alt=media&token=e09243d2-1550-4e5c-af87-e2cf10c99a9d",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere2.png?alt=media&token=b5fd06f5-0df8-4eb4-9a55-aed4f5c404c0",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Feducarriere3.png?alt=media&token=9b39073d-6662-460d-82a6-17cc8e92fc63"
-#     ],
-#     "Kaggle": [ 
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle1.png?alt=media&token=55f6092a-356b-465c-a82f-88bc28572c89",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle2.png?alt=media&token=c0da6d48-0198-4ad7-8dfd-cbbd072e67b4",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Fkaggle3.png?alt=media&token=e71aea7d-0c20-4043-bfe2-2f216873f3d2"
-#     ],
-#     "Agence Emploi Jeunes": [ 
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi1.png?alt=media&token=7d666cfc-f3d3-4f45-8ed1-1ecc0ad4e46c",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi2.png?alt=media&token=49bdbf76-e069-44dc-8167-486b3c0a91e3",
-#         "https://firebasestorage.googleapis.com/v0/b/marabo-80906.firebasestorage.app/o/images_sources%2Ficon_agenceemploi3.png?alt=media&token=3afccd8e-9d54-4fe2-b3a5-c430267b5ec1"
-#     ]
-# }
 
 
 
@@ -296,21 +225,6 @@ def check_and_notify_new_source(source_name):
 
 
 
-# def choose_image(source: str):
-#     """
-#     Choisit une image dans le dictionnaire en fonction de la source.
-#     Utilise .get() pour gérer les clés manquantes sans planter.
-#     """
-#     # Si la source est dans notre dictionnaire, on prend une image au hasard de sa liste
-#     if source in local_images:
-#         return random.choice(local_images[source])
-    
-#     # Sinon, on retourne le fallback aléatoire
-#     print(f"⚠️ Aucune image spécifique trouvée pour la source : '{source}'. Utilisation d'une image aléatoire.")
-#     return random_image()
-
-
-
 
 def choose_smart_image(category: str, ai_job_theme: str = None) -> str:
     """
@@ -349,36 +263,6 @@ def generate_numeric_id(title: str, date_end: str) -> int:
     return int(hash_object.hexdigest()[:12], 16)
 
 
-# def generate_ai_summary_gemini(title, category, source, description=""):
-    
-    
-#     prompt = f"Résumé en français de l'opportunité suivante:\nTitre: {title}\nCatégorie: {category}\nSource: {source}\nDescription: {description}\nRends-le clair et engageant."
-
-#     headers = {
-#         "Content-Type": "application/json"
-#     }
-
-#     data = {
-#         "contents": [
-#             {
-#                 "parts": [
-#                     {"text": prompt}
-#                 ]
-#             }
-#         ]
-#     }
-
-#     try:
-#         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
-#         response.raise_for_status()
-#         result = response.json()
-#         # Récupération du texte renvoyé par Gemini
-#         ai_summary = result["candidates"][0]["content"]["parts"][0]["text"]
-#         return ai_summary
-#     except Exception as e:
-#         print("Erreur Gemini:", e, response.text if 'response' in locals() else "")
-#         return f"L’IA n’a pas pu générer de résumé pour '{title}'."
-
 
 def generate_ai_summary(category, source):
     """
@@ -389,68 +273,12 @@ def generate_ai_summary(category, source):
 
 
 
-# def analyze_opportunity_with_gemini(title, category, source, description=""):
-#     # Le prompt magique : on force Gemini à renvoyer du JSON
-#     prompt = f"""Analyse l'opportunité suivante et extrais les informations clés.
-# Titre: {title}
-# Catégorie: {category}
-# Source: {source}
-# Description: {description}
-
-# Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valide, avec la structure exacte suivante :
-# {{
-#     "summary": "Un résumé clair et engageant en 2 ou 3 phrases.",
-#     "company_name": "Nom de l'entreprise ou de l'organisation. Si introuvable, mets 'Non spécifié'",
-#     "exact_location": "Ville précise (ex: Abidjan, Bouaké, Yamoussoukro, Remote). Si introuvable, mets 'Non spécifié'",
-#     "required_skills": ["Compétence 1", "Compétence 2", "Compétence 3"]
-# }}"""
-
-#     headers = {
-#         "Content-Type": "application/json"
-#     }
-
-#     data = {
-#         "contents": [
-#             {
-#                 "parts": [
-#                     {"text": prompt}
-#                 ]
-#             }
-#         ]
-#     }
-
-#     try:
-#         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
-#         response.raise_for_status()
-#         result = response.json()
-        
-#         # Récupération du texte brut de l'IA
-#         ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
-        
-#         # Nettoyage : parfois Gemini entoure le JSON avec ```json ... ```
-#         ai_text = re.sub(r"^```json\s*", "", ai_text, flags=re.IGNORECASE)
-#         ai_text = re.sub(r"\s*```$", "", ai_text).strip()
-        
-#         # Transformation du texte en vrai dictionnaire Python
-#         ai_data = json.loads(ai_text)
-#         return ai_data
-
-#     except Exception as e:
-#         print("Erreur Gemini (ou parsing JSON):", e)
-#         # Fallback de sécurité au cas où l'IA échoue
-#         return {
-#             "summary": f"L’IA n’a pas pu générer de résumé pour '{title}'.",
-#             "company_name": "Non spécifié",
-#             "exact_location": "Non spécifié",
-#             "required_skills": []
-#         }
-
-
-
-
-
 
 # def analyze_opportunity_with_gemini(title, category, source, description=""):
+#     """
+#     Analyse une opportunité via l'API Gemini et extrait les informations clés
+#     sous forme de dictionnaire Python structuré.
+#     """
 #     # Le prompt magique mis à jour avec la consigne 'job_theme'
 #     prompt = f"""Analyse l'opportunité suivante et extrais les informations clés.
 # Titre: {title}
@@ -487,11 +315,18 @@ def generate_ai_summary(category, source):
 #         result = response.json()
         
 #         # Récupération du texte brut de l'IA
-#         ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+#         ai_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
         
-#         # Nettoyage : parfois Gemini entoure le JSON avec
-#         ai_text = re.sub(r"^json\s*", "", ai_text, flags=re.IGNORECASE)
-#         ai_text = re.sub(r"\s*`$", "", ai_text).strip()
+#         # 🔥 NETTOYAGE ULTRA-BLINDÉ : Extrait uniquement ce qui se trouve entre les premières et dernières accolades
+#         json_match = re.search(r"(\{.*\})", ai_text, re.DOTALL)
+#         if json_match:
+#             ai_text = json_match.group(1)
+#         else:
+#             # Si aucune accolade n'est trouvée, on nettoie les balises markdown classiques
+#             ai_text = re.sub(r"^`json\s*", "", ai_text, flags=re.IGNORECASE)
+#             ai_text = re.sub(r"^\s*", "", ai_text)
+#             ai_text = re.sub(r"\s*`$", "", ai_text)
+#             ai_text = ai_text.strip()
         
 #         # Transformation du texte en vrai dictionnaire Python
 #         ai_data = json.loads(ai_text)
@@ -510,13 +345,11 @@ def generate_ai_summary(category, source):
 
 
 
-
 def analyze_opportunity_with_gemini(title, category, source, description=""):
     """
-    Analyse une opportunité via l'API Gemini et extrait les informations clés
-    sous forme de dictionnaire Python structuré.
+    Analyse une opportunité via le nouveau SDK google-genai et extrait 
+    les informations clés sous forme de dictionnaire Python structuré.
     """
-    # Le prompt magique mis à jour avec la consigne 'job_theme'
     prompt = f"""Analyse l'opportunité suivante et extrais les informations clés.
 Titre: {title}
 Catégorie: {category}
@@ -532,55 +365,40 @@ Tu dois OBLIGATOIREMENT renvoyer la réponse sous la forme d'un objet JSON valid
     "job_theme": "Si la catégorie est 'Emplois' ou 'Formations', choisis STRICTEMENT la valeur la plus proche parmi : 'tech', 'sante', 'vente', 'bureau', 'terrain'. Si la description ne correspond à aucun de ces thèmes ou s'il s'agit d'une autre catégorie (comme Concours, Bourses, etc.), mets null sans guillemets."
 }}"""
 
-    headers = {
-        "Content-Type": "application/json"
+    # 🛡️ Système anti-503 / 429 : On tente l'appel jusqu'à 3 fois maximum
+    for tentative in range(3):
+        try:
+            # Appel via le nouveau client officiel
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                # En forçant le type de réponse en JSON, Gemini structure parfaitement la sortie
+                config={
+                    "response_mime_type": "application/json"
+                }
+            )
+            
+            # Plus besoin de nettoyage d'accolades complexe, le JSON arrive propre !
+            ai_text = response.text.strip()
+            ai_data = json.loads(ai_text)
+            return ai_data
+
+        except Exception as e:
+            print(f"⚠️ Tentative {tentative + 1}/3 échouée pour Gemini. Erreur : {e}")
+            if tentative < 2:
+                time.sleep(2)  # Petite pause de 2 secondes avant de retenter
+            else:
+                final_error = e
+
+    # 🔥 FALLBACK GENERAL : Si après 3 essais le serveur Google refuse de répondre
+    print("❌ Échec définitif de Gemini après 3 tentatives. Application du fallback de sécurité.")
+    return {
+        "summary": f"L'opportunité pour '{title}' publiée par {source} est actuellement disponible dans la catégorie {category}.",
+        "company_name": "Non spécifié",
+        "exact_location": "Non spécifié",
+        "required_skills": [],
+        "job_theme": None
     }
-
-    data = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
-
-    try:
-        response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
-        response.raise_for_status()
-        result = response.json()
-        
-        # Récupération du texte brut de l'IA
-        ai_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-        
-        # 🔥 NETTOYAGE ULTRA-BLINDÉ : Extrait uniquement ce qui se trouve entre les premières et dernières accolades
-        json_match = re.search(r"(\{.*\})", ai_text, re.DOTALL)
-        if json_match:
-            ai_text = json_match.group(1)
-        else:
-            # Si aucune accolade n'est trouvée, on nettoie les balises markdown classiques
-            ai_text = re.sub(r"^`json\s*", "", ai_text, flags=re.IGNORECASE)
-            ai_text = re.sub(r"^\s*", "", ai_text)
-            ai_text = re.sub(r"\s*`$", "", ai_text)
-            ai_text = ai_text.strip()
-        
-        # Transformation du texte en vrai dictionnaire Python
-        ai_data = json.loads(ai_text)
-        return ai_data
-
-    except Exception as e:
-        print("Erreur Gemini (ou parsing JSON):", e)
-        # Fallback de sécurité au cas où l'IA échoue (Ajout du job_theme par défaut à None)
-        return {
-            "summary": f"L’IA n’a pas pu générer de résumé pour '{title}'.",
-            "company_name": "Non spécifié",
-            "exact_location": "Non spécifié",
-            "required_skills": [],
-            "job_theme": None
-        }
-
-
 
 
 
@@ -4453,16 +4271,11 @@ def analyze_facebook_post_with_gemini(text, source_name):
 
 
 
-
-# --- FONCTION D'ANALYSE GEMINI (Réseaux Sociaux : Facebook & LinkedIn) ---
+# --- FONCTION D'ANALYSE GEMINI MODERNISÉE (Réseaux Sociaux : Facebook & LinkedIn) ---
 def analyze_social_post_with_gemini(text_content, source_name, platform="Réseau/Plateforme"):
-    # On force une petite pause AVANT de lancer la requête
-    import time
-    time.sleep(2)
-
     """
-    Analyse un texte brut (Post Facebook ou Offre LinkedIn) pour en extraire 
-    les infos qualifiées pour le Dashboard B2B.
+    Analyse un texte brut (Post Facebook ou Offre LinkedIn) via le nouveau SDK google-genai
+    pour en extraire les infos qualifiées pour le Dashboard B2B.
     """
     
     # 1. Construction du Prompt "Hybride" + Data-Driven
@@ -4494,41 +4307,117 @@ def analyze_social_post_with_gemini(text_content, source_name, platform="Réseau
     {{ "is_valid": false }}
     """
 
-    # 2. Préparation de la requête
-    headers = { "Content-Type": "application/json" }
-    data = { "contents": [{ "parts": [{ "text": prompt }] }] }
-
-    try:
-        response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
-        response.raise_for_status() 
-        
-        result = response.json()
-        
-        # Vérification si Gemini a renvoyé quelque chose
-        if "candidates" not in result or not result["candidates"]:
-            return {"is_valid": False}
-
-        text_resp = result["candidates"][0]["content"]["parts"][0]["text"]
-        
-        # 3. Nettoyage "Chirurgical" du JSON
-        match = re.search(r'\{.*\}', text_resp, re.DOTALL)
-        if match:
-            # On force le parsing JSON
-            parsed_data = json.loads(match.group())
+    # 2. Exécution des appels avec mécanisme anti-surcharges / pannes
+    for tentative in range(3):
+        try:
+            # Appel via le nouveau client global
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config={
+                    "response_mime_type": "application/json"  # Force une réponse au format JSON propre
+                }
+            )
             
-            # Sécurité : Si l'IA a oublié les nouveaux champs, on les ajoute par défaut
-            if parsed_data.get("is_valid") == True:
+            # Le texte brut récupéré est garanti être un JSON valide
+            parsed_data = json.loads(response.text.strip())
+            
+            # Sécurité de structure : Si l'opportunité est valide, on s'assure que toutes les clés attendues existent
+            if parsed_data.get("is_valid") is True:
                 parsed_data.setdefault("company_name", "Non spécifié")
                 parsed_data.setdefault("exact_location", "Non spécifié")
                 parsed_data.setdefault("required_skills", [])
                 
             return parsed_data
-        else:
-            return {"is_valid": False}
 
-    except Exception as e:
-        print(f"⚠️ Erreur analyse Gemini pour {platform} ({source_name}): {e}")
-        return {"is_valid": False}
+        except Exception as e:
+            print(f"⚠️ Tentative {tentative + 1}/3 échouée pour Gemini {platform} ({source_name}). Erreur : {e}")
+            if tentative < 2:
+                time.sleep(2)  # Pause avant de réessayer pour lisser le débit d'appels
+
+    # Fallback définitif en cas de panne totale des 3 tentatives
+    print(f"❌ Échec de traitement total de Gemini pour le post de {source_name} sur {platform}.")
+    return {"is_valid": False}
+
+
+
+# # --- FONCTION D'ANALYSE GEMINI (Réseaux Sociaux : Facebook & LinkedIn) ---
+# def analyze_social_post_with_gemini(text_content, source_name, platform="Réseau/Plateforme"):
+#     # On force une petite pause AVANT de lancer la requête
+#     import time
+#     time.sleep(2)
+
+#     """
+#     Analyse un texte brut (Post Facebook ou Offre LinkedIn) pour en extraire 
+#     les infos qualifiées pour le Dashboard B2B.
+#     """
+    
+#     # 1. Construction du Prompt "Hybride" + Data-Driven
+#     prompt = f"""
+#     Tu es un expert en recrutement. Analyse le texte suivant provenant de '{source_name}' sur la plateforme '{platform}'.
+#     Il peut s'agir d'un post informel ou d'une offre structurée.
+    
+#     Texte à analyser : 
+#     "{text_content[:1500]}"
+
+#     Tâche :
+#     1. Détermine si c'est une RÉELLE opportunité (Offre d'emploi, Stage, Formation, Concours, Hackathon).
+#     2. Filtrage strict : Si c'est une publicité, des vœux, de la politique, un témoignage ou une info sans lien/moyen de postuler, REJETTE-LE.
+#     3. Si c'est valide, extrais les informations clés de manière concise.
+
+#     Format de réponse attendu (JSON STRICT uniquement, avec les clés exactes ci-dessous) :
+#     {{
+#         "is_valid": true,
+#         "title": "Titre court et clair du poste ou du concours",
+#         "category": "Emploi" | "Stage" | "Formation" | "Concours" | "Bourse",
+#         "date_end": "JJ/MM/AAAA" (ou null si non précisé),
+#         "summary": "Résumé en une phrase de l'opportunité.",
+#         "company_name": "Nom de l'entreprise. Si introuvable, mets 'Non spécifié'",
+#         "exact_location": "Ville précise (ex: Abidjan, Remote). Si introuvable, mets 'Non spécifié'",
+#         "required_skills": ["Compétence 1", "Compétence 2", "Compétence 3"] 
+#     }}
+
+#     Si l'opportunité est invalide, expirée ou qu'il s'agit d'un simple post de communication : 
+#     {{ "is_valid": false }}
+#     """
+
+#     # 2. Préparation de la requête
+#     headers = { "Content-Type": "application/json" }
+#     data = { "contents": [{ "parts": [{ "text": prompt }] }] }
+
+#     try:
+#         response = requests.post(GEMINI_API_URL, json=data, headers=headers, timeout=15)
+#         response.raise_for_status() 
+        
+#         result = response.json()
+        
+#         # Vérification si Gemini a renvoyé quelque chose
+#         if "candidates" not in result or not result["candidates"]:
+#             return {"is_valid": False}
+
+#         text_resp = result["candidates"][0]["content"]["parts"][0]["text"]
+        
+#         # 3. Nettoyage "Chirurgical" du JSON
+#         match = re.search(r'\{.*\}', text_resp, re.DOTALL)
+#         if match:
+#             # On force le parsing JSON
+#             parsed_data = json.loads(match.group())
+            
+#             # Sécurité : Si l'IA a oublié les nouveaux champs, on les ajoute par défaut
+#             if parsed_data.get("is_valid") == True:
+#                 parsed_data.setdefault("company_name", "Non spécifié")
+#                 parsed_data.setdefault("exact_location", "Non spécifié")
+#                 parsed_data.setdefault("required_skills", [])
+                
+#             return parsed_data
+#         else:
+#             return {"is_valid": False}
+
+#     except Exception as e:
+#         print(f"⚠️ Erreur analyse Gemini pour {platform} ({source_name}): {e}")
+#         return {"is_valid": False}
+
+
 
 
 # --- 2. FONCTION DE SCRAPING FACEBOOK (inchangée, juste nettoyée) ---
