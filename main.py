@@ -5724,13 +5724,6 @@ def trigger_ua_international_scrape():
 
 
 
-
-
-
-
-# 👈 AJOUTE CETTE LIGNE : Elle va chercher la clé secrète dans Render
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
 class ChatMessage(BaseModel):
     message: str
 
@@ -5749,10 +5742,7 @@ async def chat_with_marabot(chat_req: ChatMessage):
             lien = opp.get('url', 'Pas de lien')
             context += f"- Titre: {titre} | Catégorie: {categorie} | Lien: {lien}\n"
 
-        # 3. On initialise le modèle (plus besoin de remettre la clé ici)
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        
-        # 4. Le prompt...
+        # 3. Le prompt pour Marabo
         prompt = f"""Tu es Marabo, un assistant virtuel chaleureux et expert.
         ⚠️ ATTENTION : Ton nom s'écrit EXACTEMENT "Marabo". Tu n'es en aucun cas un "marabout". Ne te présente jamais comme un marabout. 
         Ton but est d'aider l'utilisateur à trouver l'opportunité idéale parmi celles disponibles.
@@ -5768,14 +5758,17 @@ async def chat_with_marabot(chat_req: ChatMessage):
         - Utilise des emojis pour rendre le texte agréable.
         """
         
-        # 5. On génère la réponse
-        response = model.generate_content(prompt)
+        # 4. On génère la réponse via la syntaxe officielle du nouveau SDK
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
         
         return {"reply": response.text}
 
     except Exception as e:
-        return {"reply": f"Oups, j'ai eu un petit bug dans mon circuit IA : {str(e)}"}
-
+        print(f"❌ Erreur Marabot: {e}")
+        return {"reply": "Oups, j'ai eu un petit bug dans mon circuit IA. Réessaie dans quelques instants ! 🤖"}
 
 
 
