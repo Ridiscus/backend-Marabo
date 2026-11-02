@@ -73,7 +73,13 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 
 import urllib3
-from kaggle.api.kaggle_api_extended import KaggleApi
+# Kaggle est facultatif (son scraper est désactivé) : un souci d'installation
+# de cette bibliothèque ne doit plus jamais empêcher le serveur de démarrer.
+try:
+    from kaggle.api.kaggle_api_extended import KaggleApi
+except Exception as kaggle_import_error:  # ex. « No module named 'six' »
+    KaggleApi = None
+    print(f"⚠️ Kaggle indisponible, scraper Kaggle ignoré : {kaggle_import_error}")
 
 
 from contextlib import asynccontextmanager
@@ -3736,6 +3742,9 @@ def scrape_educarriere_formations(max_pages: int = 1):
 # --- Scraper Kaggle (CORRIGÉ) ---
 def scrape_kaggle_competitions(max_items: int = 30):
     try:
+        if KaggleApi is None:
+            print("⚠️ Scraper Kaggle ignoré : bibliothèque non installée.")
+            return []
         api = KaggleApi()
         api.authenticate()
     except Exception as e:
