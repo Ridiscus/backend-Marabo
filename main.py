@@ -53,6 +53,7 @@ from recrutement import (
     REQUIRE_AUTH_APPLY,
     is_closed_for_applications,
     mark_invitation_applied,
+    recrutement_lifespan,
 )
 
 
@@ -675,9 +676,8 @@ class ApplicationModel(BaseModel):
 init_recrutement(db, send_push_to_user)
 app.include_router(recrutement_router)
 # Rappels d'entretien toutes les 5 min (indépendant du scraping).
-# ⚠️ Si un jour tu passes lifespan=... à FastAPI, déplace ces deux appels dans le lifespan.
-app.add_event_handler("startup", start_recrutement_scheduler)
-app.add_event_handler("shutdown", stop_recrutement_scheduler)
+# Les versions récentes de FastAPI n'ont plus add_event_handler : on passe par le lifespan.
+app.router.lifespan_context = recrutement_lifespan
 
 
 @app.post("/apply")

@@ -28,6 +28,7 @@ import random
 import re
 import string
 import unicodedata
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -529,6 +530,17 @@ def stop_recrutement_scheduler():
     if _scheduler is not None:
         _scheduler.shutdown(wait=False)
         _scheduler = None
+
+
+@asynccontextmanager
+async def recrutement_lifespan(app):
+    """Démarre / arrête le planificateur des rappels avec le serveur.
+    Compatible avec toutes les versions de FastAPI (add_event_handler a disparu)."""
+    start_recrutement_scheduler()
+    try:
+        yield
+    finally:
+        stop_recrutement_scheduler()
 
 
 @router.get("/cron/interview-reminders")
