@@ -37,6 +37,23 @@ from google import genai
 from firebase_admin import storage # <--- Ajoute storage
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, BackgroundTasks # N'oublie pas d'importer BackgroundTasks
+from fastapi import Header
+
+# 🎯 Module recrutement (score de correspondance, documents privés, rappels d'entretien)
+from recrutement import (
+    router as recrutement_router,
+    init_recrutement,
+    build_profile_snapshot,
+    compute_match,
+    match_fields,
+    copy_profile_document,
+    uid_from_header,
+    start_recrutement_scheduler,
+    stop_recrutement_scheduler,
+    REQUIRE_AUTH_APPLY,
+    is_closed_for_applications,
+    mark_invitation_applied,
+)
 
 
 
@@ -648,66 +665,133 @@ class ApplicationModel(BaseModel):
 
 
 
+# --- 🎯 RECRUTEMENT : branchement du module ---
+init_recrutement(db, send_push_to_user)
+app.include_router(recrutement_router)
+# Rappels d'entretien toutes les 5 min (indépendant du scraping).
+# ⚠️ Si un jour tu passes lifespan=... à FastAPI, déplace ces deux appels dans le lifespan.
+app.add_event_handler("startup", start_recrutement_scheduler)
+app.add_event_handler("shutdown", stop_recrutement_scheduler)
+
+
 @app.post("/apply")
 async def apply_for_job(
     applicant_uid: str = Form(...),
     applicant_name: str = Form(...),
     opportunity_id: str = Form(...),
     company_uid: str = Form(...),
-    category: str = Form(...),                  # 💡 NOUVEAU : Récupère la catégorie
-    message: Optional[str] = Form(None),        # 💡 NOUVEAU : Message optionnel
-    cv_file: Optional[UploadFile] = File(None), # 💡 CHANGÉ : Optionnel
-    lm_file: Optional[UploadFile] = File(None)  # 💡 CHANGÉ : Optionnel
+    category: str = Form(...),
+    message: Optional[str] = Form(None),
+    cv_file: Optional[UploadFile] = File(None),
+    lm_file: Optional[UploadFile] = File(None),
+    answers: Optional[str] = Form(None),          # 🎯 JSON [{id, text, answer}]
+    use_profile_cv: Optional[str] = Form(None),   # 🎯 "1" = joindre le CV du profil
+    use_profile_lm: Optional[str] = Form(None),   # 🎯 "1" = joindre la lettre du profil
+    authorization: Optional[str] = Header(None),  # 🔐 Bearer <idToken Firebase>
 ):
     try:
-        bucket = storage.bucket() # Récupère le bucket configuré plus haut
-        
-        cv_url = None
-        lm_url = None
+        # --- 0. Qui envoie ? ---
+        caller_uid = uid_from_header(authorization)
+        if caller_uid and caller_uid != applicant_uid:
+            return JSONResponse({"status": "error", "message": "Identité invalide."}, status_code=403)
+        if not caller_uid and REQUIRE_AUTH_APPLY:
+            return JSONResponse({"status": "error", "message": "Connexion requise. Mets Marabo à jour."}, status_code=401)
 
-        # --- 1. Upload du CV (Seulement s'il est fourni) ---
+        # --- 0 bis. Annonce et doublon ---
+        opp_doc = db.collection('opportunities').document(opportunity_id).get()
+        opp = opp_doc.to_dict() if opp_doc.exists else {}
+        if opp.get('postedBy'):
+            company_uid = opp['postedBy']  # on se fie à l'annonce, pas au téléphone
+        if opp and is_closed_for_applications(opp):
+            return JSONResponse({"status": "closed", "message": "Cette offre est clôturée."}, status_code=410)
+
+        already = db.collection('applications') \
+            .where('opportunityId', '==', opportunity_id) \
+            .where('applicantId', '==', applicant_uid) \
+            .limit(1).get()
+        if len(already) > 0:
+            return JSONResponse({"status": "duplicate", "message": "Tu as déjà postulé à cette offre."}, status_code=409)
+
+        bucket = storage.bucket()
+        cv_path = None
+        lm_path = None
+        stamp = int(time.time())
+        legacy_profile_cv = None
+
+        # --- 1. CV : fichier envoyé, sinon CV du profil (privé, plus de make_public) ---
         if cv_file and cv_file.filename:
-            blob_cv = bucket.blob(f"candidatures/{opportunity_id}/{applicant_uid}_cv_{cv_file.filename}")
-            blob_cv.upload_from_file(cv_file.file, content_type=cv_file.content_type)
-            blob_cv.make_public() 
-            cv_url = blob_cv.public_url
+            cv_path = f"candidatures/{opportunity_id}/{applicant_uid}_cv_{stamp}_{cv_file.filename}"
+            bucket.blob(cv_path).upload_from_file(cv_file.file, content_type=cv_file.content_type)
+        elif use_profile_cv == "1":
+            cv_path = copy_profile_document(applicant_uid, "cv", f"candidatures/{opportunity_id}/{applicant_uid}_cv_{stamp}_profil.pdf")
+            if not cv_path:
+                legacy_profile_cv = (db.collection('users').document(applicant_uid).get().to_dict() or {}).get('cvUrl')
 
-        # --- 2. Upload de la LM (Seulement si elle est fournie) ---
+        # --- 2. Lettre ---
         if lm_file and lm_file.filename:
-            blob_lm = bucket.blob(f"candidatures/{opportunity_id}/{applicant_uid}_lm_{lm_file.filename}")
-            blob_lm.upload_from_file(lm_file.file, content_type=lm_file.content_type)
-            blob_lm.make_public()
-            lm_url = blob_lm.public_url
+            lm_path = f"candidatures/{opportunity_id}/{applicant_uid}_lm_{stamp}_{lm_file.filename}"
+            bucket.blob(lm_path).upload_from_file(lm_file.file, content_type=lm_file.content_type)
+        elif use_profile_lm == "1":
+            lm_path = copy_profile_document(applicant_uid, "lm", f"candidatures/{opportunity_id}/{applicant_uid}_lm_{stamp}_profil.pdf")
+
+        # --- 2 bis. Réponses + profil + score ---
+        parsed_answers = []
+        if answers:
+            try:
+                raw = json.loads(answers)
+                if isinstance(raw, list):
+                    parsed_answers = [
+                        {"id": str(a.get("id")), "text": str(a.get("text", ""))[:300], "answer": str(a.get("answer", ""))[:500]}
+                        for a in raw if isinstance(a, dict)
+                    ][:10]
+            except Exception as parse_error:
+                print(f"⚠️ Réponses illisibles : {parse_error}")
+
+        profile_snapshot = build_profile_snapshot(applicant_uid)
+        match = compute_match(opp, profile_snapshot, parsed_answers) if opp else None
 
         # --- 3. Enregistrement Firestore (CANDIDATURE) ---
         app_data = {
             "applicantId": applicant_uid,
             "applicantName": applicant_name,
             "opportunityId": opportunity_id,
+            "opportunityTitle": opp.get('title', ''),
             "companyId": company_uid,
-            "category": category, # On garde une trace de la catégorie
+            "category": category,
             "createdAt": firestore.SERVER_TIMESTAMP,
-            "status": "pending"
+            "status": "pending",
+            "stage": "nouveau",
+            "stageUpdatedAt": firestore.SERVER_TIMESTAMP,
+            "profileSnapshot": profile_snapshot,
+            "authVerified": bool(caller_uid),
         }
-        
-        # On n'ajoute ces champs à Firestore que s'ils existent
-        if cv_url:
-            app_data["cvUrl"] = cv_url
-        if lm_url:
-            app_data["lmUrl"] = lm_url
+        app_data.update(match_fields(match))
+        if cv_path:
+            app_data["cvPath"] = cv_path
+        elif legacy_profile_cv:
+            app_data["cvUrl"] = legacy_profile_cv  # secours : lien du profil
+        if lm_path:
+            app_data["lmPath"] = lm_path
         if message:
             app_data["message"] = message
+        if parsed_answers:
+            app_data["answers"] = parsed_answers
 
-        # On insère dans la base
         update_time, app_ref = db.collection('applications').add(app_data)
+
+        # 🎯 Candidature venue d'une invitation CVthèque ?
+        if mark_invitation_applied(applicant_uid, opportunity_id, app_ref.id):
+            app_ref.update({"fromInvitation": True})
 
         # --- 🧠 LOGIQUE DE NOTIFICATION DYNAMIQUE ---
         is_job_or_project = category in ['Emplois', 'Stages', 'Bourses', 'Subventions / Financements', 'Appels à projets']
-        
+
         notif_title = "Nouvelle Candidature ! 📂" if is_job_or_project else "Nouvelle Inscription ! 🎉"
         notif_body = f"{applicant_name} a envoyé son dossier." if is_job_or_project else f"{applicant_name} vient de s'inscrire."
-        
-        # S'il y a un message (pour les événements), on l'ajoute à la notification
+        if match and match.get("tier") == "forte":
+            notif_title = f"Candidature à {match['score']} % ✨"
+            notif_body = f"{applicant_name} correspond très bien à « {opp.get('title', 'ton offre')} »."
+
         if message:
             notif_body += f" Message : {message}"
 
@@ -718,16 +802,13 @@ async def apply_for_job(
             "body": notif_body,
             "isRead": False,
             "createdAt": firestore.SERVER_TIMESTAMP,
-            "type": "candidature", # Tu peux garder 'candidature' ou le changer selon tes icônes côté Flutter
+            "type": "candidature",
             "relatedId": opportunity_id,
             "applicationId": app_ref.id
         }
-        
-        # ON ÉCRIT DANS LA SOUS-COLLECTION DU USER
         db.collection('users').document(company_uid).collection('notifications').add(notification_data)
 
-        # --- 5. Envoi du PUSH (Le "Bip" sur le téléphone) ---
-        # Note : assure-toi que ta fonction send_push_to_user gère bien ces paramètres !
+        # --- 5. Envoi du PUSH ---
         send_push_to_user(
             user_id=company_uid,
             title=notif_title,
@@ -736,10 +817,16 @@ async def apply_for_job(
         )
 
         success_msg = "Dossier envoyé avec succès." if is_job_or_project else "Inscription confirmée avec succès."
-        return {"status": "success", "message": success_msg}
+        return {
+            "status": "success",
+            "message": success_msg,
+            "applicationId": app_ref.id,
+            "matchScore": match["score"] if match else None,
+        }
 
     except Exception as e:
         print(f"Erreur candidature upload: {e}")
+        traceback.print_exc()
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
