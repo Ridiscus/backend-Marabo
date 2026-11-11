@@ -40,6 +40,14 @@ from fastapi import FastAPI, BackgroundTasks # N'oublie pas d'importer Backgroun
 from fastapi import Header
 
 # 🎯 Module recrutement (score de correspondance, documents privés, rappels d'entretien)
+from paiements import (
+    router as paiements_router,
+    init_paiements,
+    handle_webhook as paiements_handle_webhook,
+    create_payment as paiements_create,
+    _uid_from_token as paiements_uid_from_token,
+)
+from fastapi import HTTPException
 from recrutement import (
     router as recrutement_router,
     init_recrutement,
@@ -675,6 +683,8 @@ class ApplicationModel(BaseModel):
 # --- 🎯 RECRUTEMENT : branchement du module ---
 init_recrutement(db, send_push_to_user)
 app.include_router(recrutement_router)
+init_paiements(db)
+app.include_router(paiements_router)
 # Rappels d'entretien toutes les 5 min (indépendant du scraping).
 # Les versions récentes de FastAPI n'ont plus add_event_handler : on passe par le lifespan.
 app.router.lifespan_context = recrutement_lifespan
@@ -1542,122 +1552,50 @@ def list_opportunities():
 
 
 
-# Récupération des clés
-GENIUS_API_KEY = os.getenv("GENIUS_API_KEY")
-GENIUS_API_SECRET = os.getenv("GENIUS_API_SECRET")
-
+# =============================================================================
+# 💳 GENIUSPAY : tout le moteur est dans paiements.py
+#   - /create-payment       : ancienne route de l'app, conservée (même réponse)
+#   - /webhook/geniuspay    : webhook signé (HMAC) + idempotent
+#   - /payments/...         : nouvelles routes (create, status, return, test)
+# =============================================================================
 @app.post("/create-payment")
-def create_payment(
-    amount: int = Body(...), 
-    description: str = Body("Abonnement Marabo"),
+def legacy_create_payment(
+    amount: int = Body(...),
+    description: str = Body("Recharge Marabo Pay"),
     phone: str = Body(None),
-    user_id: str = Body(...)
+    user_id: str = Body(...),
+    authorization: str = Header(None),
 ):
-    transaction_id = str(uuid.uuid4())
-    url = "https://pay.genius.ci/api/v1/merchant/payments"
-    
-    # Utilisation des variables sécurisées
-    headers = {
-        "X-API-Key": GENIUS_API_KEY,
-        "X-API-Secret": GENIUS_API_SECRET,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-    
-    payload = {
-        "amount": amount,
-        "description": description,
-        "reference": transaction_id,
-        "currency": "XOF",
-        "metadata": {
-            "user_id": user_id
-        }
-    }
-    
-    if phone:
-        payload["customer_phone"] = phone
-
+    """Ancienne route utilisée par l'app (recharge du portefeuille).
+    Le montant n'est crédité qu'après un webhook GeniusPay signé."""
+    token_uid = paiements_uid_from_token(authorization)
+    if authorization and token_uid != user_id:
+        return JSONResponse({"status": "error", "message": "Jeton invalide pour cet utilisateur"}, status_code=401)
+    user = db.collection("users").document(user_id).get()
+    if not user.exists:
+        return JSONResponse({"status": "error", "message": "Utilisateur introuvable"}, status_code=404)
+    u = user.to_dict() or {}
+    customer = {"name": u.get("username") or u.get("name"), "email": u.get("email"), "phone": phone}
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        data = response.json()
-        
-        if response.status_code in [200, 201]:
-            return {
-                "status": "success",
-                "checkout_url": data['data']['checkout_url'],
-                "transaction_id": transaction_id
-            }
-        else:
-            return {"status": "error", "details": data}
-
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-
-
+        result = paiements_create(user_id, "topup", amount, customer=customer, extra={"description": description, "via": "legacy"})
+    except HTTPException as e:
+        return JSONResponse({"status": "error", "message": e.detail}, status_code=e.status_code)
+    return {
+        "status": "success",
+        "checkout_url": result["checkoutUrl"],
+        "transaction_id": result["paymentId"],
+        "payment_id": result["paymentId"],
+    }
 
 
 @app.post("/webhook/geniuspay")
 async def geniuspay_webhook(request: Request):
-    try:
-        payload = await request.json()
-        print("🔔 WEBHOOK REÇU :", payload)
-        
-        # 1. On vérifie l'événement
-        event = payload.get("event")
-        
-        # 2. On ouvre le "tiroir" data
-        data = payload.get("data", {})
-        
-        status = data.get("status")
-        gp_reference = data.get("reference") # Ex: SANDBOX_J2HCXU...
-        
-        # 3. On récupère le user_id qu'on avait caché dans les metadata
-        metadata = data.get("metadata")
-        user_id = None
-        if isinstance(metadata, dict):
-            user_id = metadata.get("user_id")
+    return await paiements_handle_webhook(request)
 
-        # 4. On valide le paiement
-        if event == "payment.success" and status == "completed":
-            # On récupère le montant envoyé par GeniusPay
-            amount = float(data.get("amount", 0))
-            print(f"✅ Paiement validé (Ref: {gp_reference}) - Montant: {amount} FCFA")
-            
-            if user_id:
-                print(f"🚀 Mise à jour Firestore pour l'utilisateur : {user_id}")
-                
-                # On crée la référence vers l'utilisateur
-                user_ref = db.collection("users").document(user_id)
-                
-                # --- ACTION 1 : MISE À JOUR DU SOLDE ---
-                # On utilise Increment pour ajouter le montant au solde existant
-                user_ref.update({
-                    "wallet_balance": firestore.Increment(amount)
-                })
-                
-                # --- ACTION 2 : CRÉATION DE L'HISTORIQUE ---
-                # On enregistre la transaction pour que l'entreprise la voie dans son historique
-                db.collection("transactions").add({
-                    "user_id": user_id,
-                    "amount": amount,
-                    "type": "top_up",
-                    "provider": "geniuspay",
-                    "reference": gp_reference,
-                    "date": firestore.SERVER_TIMESTAMP # Heure exacte du serveur
-                })
-                
-                print("💎 Portefeuille Marabo Pay rechargé avec succès !")
-                return {"status": "success", "message": "Portefeuille mis à jour"}
-                
-            else:
-                print("⚠️ Paiement validé, mais aucun user_id trouvé dans les metadata.")
-                return {"status": "error", "message": "user_id manquant"}
-            
-    except Exception as e:
-        print(f"⚠️ Erreur Webhook : {e}")
-        return {"status": "error", "message": str(e)}
+
+@app.post("/webhooks/geniuspay")
+async def geniuspay_webhook_alias(request: Request):
+    return await paiements_handle_webhook(request)
 
 
 
