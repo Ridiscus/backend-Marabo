@@ -1,5 +1,7 @@
-# 1. On passe à Python 3.11-slim pour corriger l'alerte de version obsolète
-FROM python:3.11-slim
+# 1. Python 3.11-slim, version Debian FIXÉE sur bookworm (Debian 12).
+#    Sans "-bookworm", l'image suit la dernière Debian (trixie), où il manque
+#    libatomic1 : le Node de Playwright plante pendant le build.
+FROM python:3.11-slim-bookworm
 
 # 2. On empêche Python de créer des fichiers .pyc et on force l'affichage des prints en temps réel
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -13,9 +15,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. LA NOUVELLE PARTIE MAGIQUE : 
-# On met à jour l'OS, puis Playwright installe Chromium ET toutes ses dépendances Linux (.so)
+# 5. On met à jour l'OS, on ajoute libatomic1 (nécessaire au Node de Playwright),
+#    puis Playwright installe Chromium ET toutes ses dépendances Linux (.so)
 RUN apt-get update && \
+    apt-get install -y --no-install-recommends libatomic1 && \
     playwright install --with-deps chromium && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
