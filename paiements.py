@@ -37,6 +37,7 @@ from firebase_admin import firestore
 
 router = APIRouter()
 _db = None
+_push = None  # send_push_to_user(uid, title, body, data) fourni par main.py
 
 # -----------------------------------------------------------------------------
 # ⚙️ CONFIGURATION (variables d'environnement Render)
@@ -71,6 +72,7 @@ PURPOSES = {
     "premium": {"label": "Marabo Premium", "min": 200, "max": 1_000_000},
     "boost": {"label": "Boost d'annonce", "min": 200, "max": 1_000_000},
     "banner": {"label": "Affiche sponsorisée", "min": 200, "max": 1_000_000},
+    "annonce": {"label": "Publication d'annonce", "min": 200, "max": 1_000_000},
     "test": {"label": "Paiement de test Marabo", "min": 200, "max": 200},
 }
 
@@ -90,12 +92,18 @@ BOOST_PACKS = {
 BANNER_PRICE_PER_DAY = 1000
 BANNER_DAYS = (1, 3, 7, 14, 30)
 
+# Publication d'annonces (entreprises) : 50 gratuites, puis 250 F l'annonce,
+# illimité avec Premium. Compteur : users/{uid}.freeAnnoncesUsed (serveur seul).
+FREE_ANNONCES = 50
+ANNONCE_PRICE = 250
+
 TIMESTAMP_TOLERANCE = 300  # 5 minutes
 
 
-def init_paiements(db):
-    global _db
+def init_paiements(db, push=None):
+    global _db, _push
     _db = db
+    _push = push
     k, s = api_keys()
     print(f"💳 GeniusPay : mode {MODE.upper()} · clés {'OK' if k and s else 'MANQUANTES'} · "
           f"webhook sandbox {'OK' if webhook_secret('sandbox') else 'absent'} · "
@@ -279,6 +287,11 @@ def _build_order(uid: str, user: dict, payload: dict) -> dict:
                 "extra": {"pack": payload.get("pack"), "packName": pack["name"], "days": pack["days"],
                           "annonceId": annonce_id, "annonceTitle": title[:200]}}
 
+    if purpose == "annonce":
+        if not is_company:
+            raise HTTPException(status_code=403, detail="Réservé aux entreprises")
+        return {"purpose": purpose, "amount": ANNONCE_PRICE, "label": "Publication d'annonce", "extra": {}}
+
     if purpose == "banner":
         banner_id = str(payload.get("bannerId") or "")
         snap = _db.collection("banners").document(banner_id).get() if banner_id else None
@@ -428,6 +441,15 @@ def _fulfil(transaction, pay_ref, pay: dict, gp: dict) -> dict:
         _log_tx(transaction, pay_ref, pay, gp, "ad_banner", amount, banner_id=b_ref.id,
                 annonce_title=b.get("title") or "Affiche", package_name=f"{days} jour{'s' if days > 1 else ''}")
         return {"dateEnd": end.isoformat()}
+
+    if purpose == "annonce":
+        # Crédit de publication payé directement : l'app l'utilise aussitôt
+        transaction.set(_db.collection("publishCredits").document(pay_ref.id), {
+            "userId": uid, "type": "paid", "via": "geniuspay", "used": False,
+            "paymentId": pay_ref.id, "createdAt": firestore.SERVER_TIMESTAMP,
+        })
+        _log_tx(transaction, pay_ref, pay, gp, "publish_ad", amount)
+        return {"creditId": pay_ref.id}
 
     if purpose == "donation":
         transaction.set(_db.collection("donations").document(pay_ref.id), {
@@ -664,7 +686,111 @@ def payments_catalog():
         "boost": BOOST_PACKS,
         "bannerPricePerDay": BANNER_PRICE_PER_DAY,
         "bannerDays": list(BANNER_DAYS),
+        "freeAnnonces": FREE_ANNONCES,
+        "annoncePrice": ANNONCE_PRICE,
     }
+
+
+# -----------------------------------------------------------------------------
+# 📝 CRÉDITS DE PUBLICATION D'ANNONCE
+#   L'app ne peut créer une annonce qu'avec un crédit publishCredits/{id} non
+#   utilisé, délivré ici (règles Firestore). Ordre de décision :
+#     1. un crédit déjà délivré et pas encore utilisé → on le rend
+#     2. Premium actif                               → crédit « premium »
+#     3. moins de 50 gratuites utilisées             → crédit « free »
+#     4. method = "wallet" et solde ≥ 250 F          → débit + crédit « paid »
+#     5. sinon → 402 : l'app propose solde / paiement direct / Premium
+# -----------------------------------------------------------------------------
+def _premium_active(user: dict) -> bool:
+    end = _as_datetime(user.get("premiumEnd"))
+    return bool(user.get("isPremium")) and end is not None and end > _now()
+
+
+def _quota(user: dict) -> dict:
+    used = int(user.get("freeAnnoncesUsed") or 0)
+    return {
+        "freeTotal": FREE_ANNONCES,
+        "freeUsed": used,
+        "freeLeft": max(0, FREE_ANNONCES - used),
+        "premium": _premium_active(user),
+        "price": ANNONCE_PRICE,
+        "balance": int(user.get("wallet_balance") or 0),
+    }
+
+
+@router.get("/annonces/quota")
+def annonces_quota(authorization: Optional[str] = Header(None)):
+    uid = _uid_from_token(authorization)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Connexion requise")
+    return _quota(_db.collection("users").document(uid).get().to_dict() or {})
+
+
+@router.post("/annonces/credit")
+def annonces_credit(payload: dict = Body(default={}), authorization: Optional[str] = Header(None)):
+    uid = _uid_from_token(authorization)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Connexion requise")
+    method = str((payload or {}).get("method") or "auto")
+    user_ref = _db.collection("users").document(uid)
+    first = user_ref.get().to_dict() or {}
+    if str(first.get("type") or "").lower() != "entreprise":
+        raise HTTPException(status_code=403, detail="Réservé aux entreprises")
+
+    # 1. Crédit déjà délivré mais pas encore utilisé (publication interrompue)
+    for doc in _db.collection("publishCredits").where("userId", "==", uid).where("used", "==", False).limit(1).stream():
+        return {"creditId": doc.id, "type": (doc.to_dict() or {}).get("type"), **_quota(first)}
+
+    credit_ref = _db.collection("publishCredits").document(uuid.uuid4().hex)
+
+    @firestore.transactional
+    def _tx(transaction):
+        user = user_ref.get(transaction=transaction).to_dict() or {}
+        q = _quota(user)
+        base = {"userId": uid, "used": False, "createdAt": firestore.SERVER_TIMESTAMP}
+        if q["premium"]:
+            transaction.set(credit_ref, {**base, "type": "premium"})
+            return "premium", q
+        if q["freeLeft"] > 0:
+            n = q["freeUsed"] + 1
+            transaction.set(user_ref, {"freeAnnoncesUsed": firestore.Increment(1)}, merge=True)
+            transaction.set(credit_ref, {**base, "type": "free", "freeIndex": n})
+            transaction.set(_db.collection("transactions").document(f"free_{credit_ref.id}"), {
+                "user_id": uid, "amount": 0, "type": "publish_free", "free_index": n,
+                "free_total": FREE_ANNONCES, "status": "completed", "date": firestore.SERVER_TIMESTAMP,
+            })
+            q = {**q, "freeUsed": n, "freeLeft": FREE_ANNONCES - n}
+            return "free", q
+        if method == "wallet" and q["balance"] >= ANNONCE_PRICE:
+            transaction.set(user_ref, {"wallet_balance": firestore.Increment(-ANNONCE_PRICE)}, merge=True)
+            transaction.set(credit_ref, {**base, "type": "paid", "via": "wallet"})
+            transaction.set(_db.collection("transactions").document(f"pub_{credit_ref.id}"), {
+                "user_id": uid, "amount": ANNONCE_PRICE, "type": "publish_ad", "status": "completed",
+                "date": firestore.SERVER_TIMESTAMP,
+            })
+            q = {**q, "balance": q["balance"] - ANNONCE_PRICE}
+            return "paid", q
+        return None, q
+
+    kind, q = _tx(_db.transaction())
+    if kind is None:
+        return JSONResponse({"detail": "Tes annonces gratuites sont utilisées.", "needPayment": True, **q}, status_code=402)
+
+    # Prévenir quand il ne reste que 5 annonces gratuites, puis à la dernière
+    if kind == "free" and q["freeLeft"] in (5, 0) and _push:
+        try:
+            if q["freeLeft"] == 5:
+                _push(uid, "Plus que 5 annonces gratuites",
+                      "Ensuite, chaque annonce coûte 250 F. Recharge ton solde Marabo Pay ou passe Premium pour publier sans limite.",
+                      {"type": "quota_annonces"})
+            else:
+                _push(uid, "Tes 50 annonces gratuites sont utilisées",
+                      "Les prochaines annonces coûtent 250 F, ou sont illimitées avec Marabo Premium.",
+                      {"type": "quota_annonces"})
+        except Exception as e:
+            print(f"⚠️ Notification quota annonces : {e}")
+
+    return {"creditId": credit_ref.id, "type": kind, **q}
 
 
 # -----------------------------------------------------------------------------
