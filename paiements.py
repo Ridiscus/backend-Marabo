@@ -26,7 +26,7 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -67,8 +67,28 @@ def webhook_secret(mode: str) -> str:
 # Motifs de paiement acceptés et bornes de montant (XOF)
 PURPOSES = {
     "topup": {"label": "Recharge Marabo Pay", "min": 200, "max": 1_000_000},
+    "donation": {"label": "Don à Marabo", "min": 200, "max": 1_000_000},
+    "premium": {"label": "Marabo Premium", "min": 200, "max": 1_000_000},
+    "boost": {"label": "Boost d'annonce", "min": 200, "max": 1_000_000},
+    "banner": {"label": "Affiche sponsorisée", "min": 200, "max": 1_000_000},
     "test": {"label": "Paiement de test Marabo", "min": 200, "max": 200},
 }
+
+# -----------------------------------------------------------------------------
+# 🏷️ CATALOGUE : les prix sont fixés ICI, jamais par l'app
+# -----------------------------------------------------------------------------
+PREMIUM_PLANS = {
+    "mensuel": {"name": "Mensuel", "price": 2000, "days": 30},
+    "trimestriel": {"name": "Trimestriel", "price": 5000, "days": 90},
+    "annuel": {"name": "Annuel", "price": 7000, "days": 365},
+}
+BOOST_PACKS = {
+    "eclair": {"name": "Pack Éclair", "price": 1500, "days": 3},
+    "visibilite": {"name": "Pack Visibilité", "price": 3000, "days": 7},
+    "maximum": {"name": "Pack Maximum", "price": 6000, "days": 15},
+}
+BANNER_PRICE_PER_DAY = 1000
+BANNER_DAYS = (1, 3, 7, 14, 30)
 
 TIMESTAMP_TOLERANCE = 300  # 5 minutes
 
@@ -152,7 +172,8 @@ def _timestamp_ok(ts: str) -> bool:
 # 💳 CRÉATION D'UN PAIEMENT
 # -----------------------------------------------------------------------------
 def create_payment(user_id: str, purpose: str, amount: int, *, mode: str = MODE,
-                   customer: Optional[dict] = None, extra: Optional[dict] = None) -> dict:
+                   customer: Optional[dict] = None, extra: Optional[dict] = None,
+                   label: Optional[str] = None) -> dict:
     if purpose not in PURPOSES:
         raise HTTPException(status_code=400, detail="Motif de paiement inconnu")
     rule = PURPOSES[purpose]
@@ -163,12 +184,13 @@ def create_payment(user_id: str, purpose: str, amount: int, *, mode: str = MODE,
     if amount < rule["min"] or amount > rule["max"]:
         raise HTTPException(status_code=400, detail=f"Montant hors limites ({rule['min']} – {rule['max']} F)")
 
+    label = label or rule["label"]
     payment_id = uuid.uuid4().hex
     ref = _db.collection("paymentOrders").document(payment_id)
     ref.set({
         "userId": user_id,
         "purpose": purpose,
-        "label": rule["label"],
+        "label": label,
         "amount": amount,
         "currency": "XOF",
         "environment": mode,
@@ -180,7 +202,7 @@ def create_payment(user_id: str, purpose: str, amount: int, *, mode: str = MODE,
     body = {
         "amount": amount,
         "currency": "XOF",
-        "description": f"{rule['label']} · Marabo",
+        "description": f"{label} · Marabo"[:120],
         "success_url": f"{PUBLIC_URL}/payments/return?result=success&pid={payment_id}",
         "error_url": f"{PUBLIC_URL}/payments/return?result=error&pid={payment_id}",
         "metadata": {"payment_id": payment_id, "user_id": user_id, "purpose": purpose},
@@ -213,21 +235,95 @@ def create_payment(user_id: str, purpose: str, amount: int, *, mode: str = MODE,
         "expiresAt": d.get("expires_at"),
         "fees": d.get("fees"),
     })
-    return {"paymentId": payment_id, "reference": d.get("reference"), "checkoutUrl": checkout, "environment": mode}
+    return {"paymentId": payment_id, "reference": d.get("reference"), "checkoutUrl": checkout,
+            "environment": mode, "amount": amount, "label": label}
+
+
+def _build_order(uid: str, user: dict, payload: dict) -> dict:
+    """Vérifie la demande et calcule le montant côté serveur.
+    Renvoie {purpose, amount, label, extra}."""
+    purpose = str(payload.get("purpose") or "")
+    is_company = str(user.get("type") or "").lower() == "entreprise"
+
+    if purpose == "topup":
+        amount = _int(payload.get("amount"))
+        return {"purpose": purpose, "amount": amount, "label": "Recharge Marabo Pay", "extra": {}}
+
+    if purpose == "donation":
+        amount = _int(payload.get("amount"))
+        message = str(payload.get("message") or "").strip()[:300]
+        anonymous = bool(payload.get("anonymous"))
+        name = str(user.get("username") or user.get("name") or "")
+        return {"purpose": purpose, "amount": amount, "label": "Don à Marabo",
+                "extra": {"message": message, "anonymous": anonymous, "userName": name}}
+
+    if purpose == "premium":
+        if not is_company:
+            raise HTTPException(status_code=403, detail="Marabo Premium est réservé aux entreprises")
+        plan = PREMIUM_PLANS.get(str(payload.get("plan") or ""))
+        if not plan:
+            raise HTTPException(status_code=400, detail="Formule Premium inconnue")
+        return {"purpose": purpose, "amount": plan["price"], "label": f"Marabo Premium {plan['name']}",
+                "extra": {"plan": payload.get("plan"), "planName": plan["name"], "days": plan["days"]}}
+
+    if purpose == "boost":
+        pack = BOOST_PACKS.get(str(payload.get("pack") or ""))
+        if not pack:
+            raise HTTPException(status_code=400, detail="Forfait de boost inconnu")
+        annonce_id = str(payload.get("annonceId") or "")
+        snap = _db.collection("opportunities").document(annonce_id).get() if annonce_id else None
+        if not snap or not snap.exists or (snap.to_dict() or {}).get("postedBy") != uid:
+            raise HTTPException(status_code=404, detail="Annonce introuvable")
+        title = str((snap.to_dict() or {}).get("title") or "Annonce")
+        return {"purpose": purpose, "amount": pack["price"], "label": f"{pack['name']} · {title}"[:90],
+                "extra": {"pack": payload.get("pack"), "packName": pack["name"], "days": pack["days"],
+                          "annonceId": annonce_id, "annonceTitle": title[:200]}}
+
+    if purpose == "banner":
+        banner_id = str(payload.get("bannerId") or "")
+        snap = _db.collection("banners").document(banner_id).get() if banner_id else None
+        b = (snap.to_dict() or {}) if snap and snap.exists else None
+        if not b or b.get("ownerId") != uid:
+            raise HTTPException(status_code=404, detail="Affiche introuvable")
+        if b.get("status") != "pending_payment":
+            raise HTTPException(status_code=409, detail="Cette affiche est déjà payée")
+        days = _int(b.get("durationDays"))
+        if days not in BANNER_DAYS:
+            raise HTTPException(status_code=400, detail="Durée d'affiche invalide")
+        title = str(b.get("title") or "Affiche")
+        return {"purpose": purpose, "amount": days * BANNER_PRICE_PER_DAY,
+                "label": f"Affiche {days} jour{'s' if days > 1 else ''} · {title}"[:90],
+                "extra": {"bannerId": banner_id, "days": days, "bannerTitle": title[:200]}}
+
+    raise HTTPException(status_code=400, detail="Motif de paiement inconnu")
+
+
+def _int(value) -> int:
+    try:
+        return int(float(value))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Montant invalide")
 
 
 @router.post("/payments/create")
 def payments_create(payload: dict = Body(...), authorization: Optional[str] = Header(None)):
-    """Appelé par l'app (utilisateur connecté). Corps : { purpose, amount }."""
+    """Appelé par l'app (utilisateur connecté).
+    Corps selon le motif :
+      topup    { purpose, amount }
+      donation { purpose, amount, message?, anonymous? }
+      premium  { purpose, plan: mensuel|trimestriel|annuel }
+      boost    { purpose, pack: eclair|visibilite|maximum, annonceId }
+      banner   { purpose, bannerId }
+    """
     uid = _uid_from_token(authorization)
     if not uid:
         raise HTTPException(status_code=401, detail="Connexion requise")
-    purpose = str(payload.get("purpose") or "")
-    if purpose == "test":
-        raise HTTPException(status_code=400, detail="Motif réservé à la page de test")
     user = _db.collection("users").document(uid).get().to_dict() or {}
+    order = _build_order(uid, user, payload or {})
     customer = {"name": user.get("username") or user.get("name"), "email": user.get("email")}
-    return {"status": "success", **create_payment(uid, purpose, payload.get("amount"), customer=customer)}
+    result = create_payment(uid, order["purpose"], order["amount"], customer=customer,
+                            extra=order["extra"], label=order["label"])
+    return {"status": "success", **result}
 
 
 # -----------------------------------------------------------------------------
@@ -236,24 +332,121 @@ def payments_create(payload: dict = Body(...), authorization: Optional[str] = He
 FINAL_FAIL = {"payment.failed": "failed", "payment.cancelled": "cancelled", "payment.expired": "expired"}
 
 
-def _fulfil(transaction, pay_ref, pay: dict, gp: dict):
-    """Effets d'un paiement réussi, écrits dans la même transaction que le statut."""
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _as_datetime(value) -> Optional[datetime]:
+    """Accepte un Timestamp Firestore, un datetime ou une chaîne ISO."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        d = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _log_tx(transaction, pay_ref, pay: dict, gp: dict, tx_type: str, amount: int, **fields):
+    doc = {
+        "user_id": pay["userId"],
+        "amount": amount,
+        "type": tx_type,
+        "provider": "geniuspay",
+        "reference": gp.get("reference") or pay.get("gpReference"),
+        "payment_id": pay_ref.id,
+        "status": "completed",
+        "date": firestore.SERVER_TIMESTAMP,
+    }
+    doc.update(fields)
+    transaction.set(_db.collection("transactions").document(f"gp_{pay_ref.id}"), doc)
+
+
+def _fulfil(transaction, pay_ref, pay: dict, gp: dict) -> dict:
+    """Effets d'un paiement réussi, écrits dans la même transaction que le statut.
+    Toutes les lectures sont faites AVANT la première écriture (règle Firestore).
+    Si la cible a disparu (annonce ou affiche supprimée), le montant est crédité
+    sur le solde Marabo Pay : l'argent n'est jamais perdu."""
     purpose = pay.get("purpose")
     amount = int(pay.get("amount") or 0)
-    if purpose == "topup":
-        user_ref = _db.collection("users").document(pay["userId"])
+    extra = pay.get("extra") or {}
+    uid = pay["userId"]
+    user_ref = _db.collection("users").document(uid)
+    now = _now()
+
+    def credit_wallet(reason: str) -> dict:
         transaction.set(user_ref, {"wallet_balance": firestore.Increment(amount)}, merge=True)
-        transaction.set(_db.collection("transactions").document(f"gp_{pay_ref.id}"), {
-            "user_id": pay["userId"],
+        _log_tx(transaction, pay_ref, pay, gp, "top_up", amount, note=reason)
+        return {"walletCredited": amount, "reason": reason}
+
+    if purpose == "topup":
+        return credit_wallet("recharge")
+
+    if purpose == "premium":
+        user = user_ref.get(transaction=transaction).to_dict() or {}
+        days = int(extra.get("days") or 30)
+        current_end = _as_datetime(user.get("premiumEnd"))
+        active = bool(user.get("isPremium")) and current_end and current_end > now
+        start = current_end if active else now
+        end = start + timedelta(days=days)
+        transaction.set(user_ref, {
+            "isPremium": True,
+            "plan": extra.get("planName") or "Mensuel",
+            "premiumStart": (user.get("premiumStart") if active else now.isoformat()),
+            "premiumEnd": end.isoformat(),
+        }, merge=True)
+        _log_tx(transaction, pay_ref, pay, gp, "premium", amount, package_name=f"Premium {extra.get('planName', '')}".strip())
+        return {"premiumEnd": end.isoformat(), "plan": extra.get("planName")}
+
+    if purpose == "boost":
+        ann_ref = _db.collection("opportunities").document(str(extra.get("annonceId") or "-"))
+        snap = ann_ref.get(transaction=transaction)
+        ann = snap.to_dict() if snap.exists else None
+        if not ann or ann.get("postedBy") != uid:
+            return credit_wallet("annonce introuvable : montant crédité sur le solde")
+        days = int(extra.get("days") or 3)
+        current_end = _as_datetime(ann.get("boostEndsAt") or ann.get("boostEndDate"))
+        start = current_end if (ann.get("isBoosted") and current_end and current_end > now) else now
+        end = start + timedelta(days=days)
+        transaction.update(ann_ref, {"isBoosted": True, "boostEndsAt": end, "lastBoostDate": firestore.SERVER_TIMESTAMP})
+        _log_tx(transaction, pay_ref, pay, gp, "boost_ad", amount,
+                annonce_id=ann_ref.id, annonce_title=ann.get("title") or "Annonce", package_name=extra.get("packName"))
+        return {"boostEndsAt": end.isoformat(), "annonceTitle": ann.get("title")}
+
+    if purpose == "banner":
+        b_ref = _db.collection("banners").document(str(extra.get("bannerId") or "-"))
+        snap = b_ref.get(transaction=transaction)
+        b = snap.to_dict() if snap.exists else None
+        if not b or b.get("ownerId") != uid or b.get("status") != "pending_payment":
+            return credit_wallet("affiche déjà payée ou supprimée : montant crédité sur le solde")
+        days = int(b.get("durationDays") or extra.get("days") or 1)
+        end = now + timedelta(days=days)
+        transaction.update(b_ref, {"status": "active", "paidAt": firestore.SERVER_TIMESTAMP,
+                                   "dateStart": now, "dateEnd": end, "paymentId": pay_ref.id})
+        _log_tx(transaction, pay_ref, pay, gp, "ad_banner", amount, banner_id=b_ref.id,
+                annonce_title=b.get("title") or "Affiche", package_name=f"{days} jour{'s' if days > 1 else ''}")
+        return {"dateEnd": end.isoformat()}
+
+    if purpose == "donation":
+        transaction.set(_db.collection("donations").document(pay_ref.id), {
+            "userId": uid,
+            "userName": extra.get("userName") or "",
             "amount": amount,
-            "type": "top_up",
-            "provider": "geniuspay",
-            "reference": gp.get("reference"),
-            "payment_id": pay_ref.id,
-            "status": "completed",
-            "date": firestore.SERVER_TIMESTAMP,
+            "currency": "XOF",
+            "message": extra.get("message") or "",
+            "anonymous": bool(extra.get("anonymous")),
+            "channel": "geniuspay",
+            "status": "confirmed",
+            "paymentId": pay_ref.id,
+            "reference": gp.get("reference") or pay.get("gpReference"),
+            "createdAt": firestore.SERVER_TIMESTAMP,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
         })
-    # purpose == "test" : rien d'autre que le statut
+        return {"donation": True}
+
+    return {}  # "test" : rien d'autre que le statut
 
 
 def apply_result(payment_id: str, status: str, gp: dict, source: str) -> str:
@@ -278,9 +471,10 @@ def apply_result(payment_id: str, status: str, gp: dict, source: str) -> str:
             if (gp.get("currency") or "XOF") != "XOF":
                 transaction.update(pay_ref, {"status": "currency_mismatch", "updatedAt": firestore.SERVER_TIMESTAMP})
                 return "currency_mismatch"
-            _fulfil(transaction, pay_ref, pay, gp)
+            result = _fulfil(transaction, pay_ref, pay, gp)
             transaction.update(pay_ref, {
                 "status": "paid",
+                "result": result,
                 "paidAt": firestore.SERVER_TIMESTAMP,
                 "paidVia": source,
                 "gpReference": gp.get("reference") or pay.get("gpReference"),
@@ -450,7 +644,27 @@ def payment_status(payment_id: str, authorization: Optional[str] = Header(None))
     if not snap.exists or snap.to_dict().get("userId") != uid:
         raise HTTPException(status_code=404, detail="Paiement introuvable")
     pay = sync_with_geniuspay(payment_id)
-    return {"status": pay.get("status"), "amount": pay.get("amount"), "purpose": pay.get("purpose"), "reference": pay.get("gpReference")}
+    return {
+        "status": pay.get("status"),
+        "amount": pay.get("amount"),
+        "purpose": pay.get("purpose"),
+        "label": pay.get("label"),
+        "reference": pay.get("gpReference"),
+        "provider": pay.get("provider"),
+        "checkoutUrl": pay.get("checkoutUrl") if pay.get("status") == "pending" else None,
+        "result": pay.get("result") or {},
+    }
+
+
+@router.get("/payments/catalog")
+def payments_catalog():
+    """Prix officiels, lus par l'app pour l'affichage."""
+    return {
+        "premium": PREMIUM_PLANS,
+        "boost": BOOST_PACKS,
+        "bannerPricePerDay": BANNER_PRICE_PER_DAY,
+        "bannerDays": list(BANNER_DAYS),
+    }
 
 
 # -----------------------------------------------------------------------------
