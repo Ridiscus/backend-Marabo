@@ -48,6 +48,7 @@ from paiements import (
     _uid_from_token as paiements_uid_from_token,
 )
 from fastapi import HTTPException
+from compte import router as compte_router, init_compte
 from recrutement import (
     router as recrutement_router,
     init_recrutement,
@@ -685,6 +686,8 @@ init_recrutement(db, send_push_to_user)
 app.include_router(recrutement_router)
 init_paiements(db, send_push_to_user)
 app.include_router(paiements_router)
+init_compte(db)
+app.include_router(compte_router)
 # Rappels d'entretien toutes les 5 min (indépendant du scraping).
 # Les versions récentes de FastAPI n'ont plus add_event_handler : on passe par le lifespan.
 app.router.lifespan_context = recrutement_lifespan
